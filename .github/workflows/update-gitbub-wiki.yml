@@ -1,0 +1,88 @@
+name: Update GitHub Wiki
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'include/tvl/TvlOps.td'
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Cache MLIR Tblgen Binary
+        id: cache-mlir-tblgen
+        uses: actions/cache@v2.1.4
+        with:
+          path: ${{github.workspace}}/mlir-tblgen
+          key: mlir-tblgen
+
+      - name: Clone LLVM repo
+        uses: actions/checkout@v2
+        with:
+          repository: llvm/llvm-project
+          ref: 'main'
+          path: 'llvm_src'
+
+      - name: Install LLVM
+        if: steps.cache-mlir-tblgen.outputs.cache-hit != 'true'
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: "11.1.0"
+          ubuntu-version: "16.04"
+          force-version: true
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Create MLIR Build Directory
+        if: steps.cache-mlir-tblgen.outputs.cache-hit != 'true'
+        run: mkdir ${{github.workspace}}/llvm_src/build
+
+      - name: Configure CMake for MLIR
+        if: steps.cache-mlir-tblgen.outputs.cache-hit != 'true'
+        working-directory: ${{github.workspace}}/llvm_src/build
+        run: |
+          cmake ../llvm \
+          -DLLVM_ENABLE_PROJECTS=mlir \
+          -DLLVM_BUILD_EXAMPLES=OFF \
+          -DLLVM_TARGETS_TO_BUILD="X86;NVPTX;AMDGPU" \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          -DLLVM_ENABLE_ASSERTIONS=ON \
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLLVM_ENABLE_LLD=ON
+
+      - name: Build MLIR
+        if: steps.cache-mlir-tblgen.outputs.cache-hit != 'true'
+        working-directory: ${{github.workspace}}/llvm_src/build
+        run: cmake --build . --target mlir-tblgen
+
+      - name: Move MLIR Tblgen Binary
+        if: steps.cache-mlir-tblgen.outputs.cache-hit != 'true'
+        working-directory: ${{github.workspace}}/llvm_src/build
+        run: mv ${{github.workspace}}/llvm_src/build/bin/mlir-tblgen ${{github.workspace}}/mlir-tblgen
+
+      - name: Setup Wiki Directory
+        run: mkdir wiki
+
+      - name: Create TvlOps Documentation
+        working-directory: ${{github.workspace}}/wiki
+        run: |
+          ${{github.workspace}}/mlir-tblgen \
+            -gen-op-doc \
+            -I=$GITHUB_WORKSPACE/llvm_src/mlir/include \
+            -I=$GITHUB_WORKSPACE/include/tvl \
+            -o=TvlOps.md \
+            $GITHUB_WORKSPACE/include/tvl/TvlOps.td
+
+      - name: Push Wiki Changes
+        uses: Andrew-Chen-Wang/github-wiki-action@v2
+        env:
+          WIKI_DIR: wiki/
+          GH_TOKEN: ${{ secrets.WIKI_ACCESS_TOKEN }}
+          GH_MAIL: ${{ secrets.WIKI_EMAIL }}
+          GH_NAME: ${{ github.repository_owner }}

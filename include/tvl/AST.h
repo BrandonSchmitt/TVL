@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/ADT/StringRef.h"
+
 namespace tvl {
 	namespace ast {
 		// Forward declarations
@@ -28,14 +30,14 @@ namespace tvl {
 		// End of forward declarations
 
 		struct Position {
-			std::shared_ptr<std::string> filename;
+			llvm::StringRef filename;
 			int line;
 			int column;
 
 			Position() : line{1}, column{1} {}
 
-			void initialize(std::shared_ptr<std::string> _filename) {
-				filename = std::move(_filename);
+			void initialize(llvm::StringRef _filename) {
+				filename = _filename;
 				line = 1;
 				column = 1;
 			}
@@ -51,7 +53,7 @@ namespace tvl {
 			Position begin;
 			Position end;
 
-			void initialize(std::shared_ptr<std::string> filename) {
+			void initialize(llvm::StringRef filename) {
 				begin.initialize(filename);
 				end.initialize(filename);
 			}
@@ -66,11 +68,11 @@ namespace tvl {
 			void columns(int count) { end.column += count; }
 
 			friend std::ostream& operator<<(std::ostream& output, const Location& location) {
-				output << *location.begin.filename << "#" << location.begin.line << ":" << location.begin.column;
+				output << location.begin.filename.begin() << "#" << location.begin.line << ":" << location.begin.column;
 				if (location.begin != location.end) {
 					output << "-";
 					if (location.begin.filename != location.end.filename) {
-						output << *location.end.filename << "#";
+						output << location.end.filename.begin() << "#";
 					}
 					if (location.begin.line != location.end.line) {
 						output << location.end.line << ":";
@@ -113,7 +115,7 @@ namespace tvl {
 		class Node {
 		public:
 			Node(NodeType type, Location loc)
-					: type{type}, loc{std::move(loc)} {};
+					: type{type}, loc{loc} {};
 
 			virtual ~Node() = default;
 
@@ -127,7 +129,7 @@ namespace tvl {
 
 		class Statement : public Node {
 		public:
-			Statement(NodeType type, Location loc) : Node{type, std::move(loc)} {}
+			Statement(NodeType type, Location loc) : Node{type, loc} {}
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) {
@@ -140,7 +142,7 @@ namespace tvl {
 
 		class Expression : public Statement {
 		public:
-			Expression(NodeType type, Location loc) : Statement{type, std::move(loc)} {}
+			Expression(NodeType type, Location loc) : Statement{type, loc} {}
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) {
@@ -151,7 +153,7 @@ namespace tvl {
 		class Array : public Expression {
 		public:
 			Array(std::vector<std::unique_ptr<Expression>> elements, Location loc)
-					: Expression{ArrayNode, std::move(loc)}, elements{std::move(elements)} {}
+					: Expression{ArrayNode, loc}, elements{std::move(elements)} {}
 
 			const std::vector<std::unique_ptr<Expression>>& getElements() const { return elements; }
 
@@ -164,7 +166,7 @@ namespace tvl {
 		class ArrayIndexing : public Expression {
 		public:
 			ArrayIndexing(std::unique_ptr<Expression> array, std::unique_ptr<Expression> index, Location loc)
-					: Expression{ArrayIndexingNode, std::move(loc)}, array{std::move(array)}, index{std::move(index)} {}
+					: Expression{ArrayIndexingNode, loc}, array{std::move(array)}, index{std::move(index)} {}
 
 			const std::unique_ptr<Expression>& getArray() const { return array; }
 			const std::unique_ptr<Expression>& getIndex() const { return index; }
@@ -179,7 +181,7 @@ namespace tvl {
 		class Assignment : public Expression {
 		public:
 			Assignment(std::unique_ptr<Expression> place, std::unique_ptr<Expression> value, Location loc)
-					: Expression{AssignmentNode, std::move(loc)}, place{std::move(place)}, value{std::move(value)} {}
+					: Expression{AssignmentNode, loc}, place{std::move(place)}, value{std::move(value)} {}
 
 			const std::unique_ptr<Expression>& getPlace() const { return place; }
 			const std::unique_ptr<Expression>& getValue() const { return value; }
@@ -195,7 +197,7 @@ namespace tvl {
 		class Number : public Expression {
 		public:
 			Number(uint64_t value, Location loc)
-					: Expression{NumberNode, std::move(loc)}, value{value} {}
+					: Expression{NumberNode, loc}, value{value} {}
 
 			uint64_t getValue() const { return value; }
 
@@ -209,7 +211,7 @@ namespace tvl {
 		class Identifier : public Expression {
 		public:
 			Identifier(std::string name, Location loc)
-					: Expression{IdentifierNode, std::move(loc)}, name{std::move(name)} {}
+					: Expression{IdentifierNode, loc}, name{std::move(name)} {}
 
 			const std::string& getName() const { return name; }
 
@@ -223,7 +225,7 @@ namespace tvl {
 		class Range : public Expression {
 		public:
 			Range(std::unique_ptr<Expression> start, std::unique_ptr<Expression> end, Location loc)
-					: Expression{RangeNode, std::move(loc)}, start{std::move(start)}, end{std::move(end)} {}
+					: Expression{RangeNode, loc}, start{std::move(start)}, end{std::move(end)} {}
 
 			const std::unique_ptr<Expression>& getStart() const { return start; }
 			const std::unique_ptr<Expression>& getEnd() const { return end; }
@@ -239,8 +241,7 @@ namespace tvl {
 		class Parameter : public Node {
 		public:
 			Parameter(std::string typeIdentifier, std::string name, Location loc)
-					: Node{ParameterNode, std::move(loc)}, typeIdentifier{std::move(typeIdentifier)},
-					name{std::move(name)} {}
+					: Node{ParameterNode, loc}, typeIdentifier{std::move(typeIdentifier)}, name{std::move(name)} {}
 
 			const std::string& getTypeIdentifier() const { return typeIdentifier; }
 			const std::string& getName() const { return name; }
@@ -257,9 +258,8 @@ namespace tvl {
 		public:
 			Function(std::string identifier, std::vector<std::unique_ptr<Parameter>> parameters,
 					std::vector<std::unique_ptr<Statement>> body, Location loc)
-					: Node{FunctionNode, std::move(loc)}, identifier{std::move(identifier)},
-					parameters{std::move(parameters)},
-					body{std::move(body)} {}
+					: Node{FunctionNode, loc}, identifier{std::move(identifier)},
+					parameters{std::move(parameters)}, body{std::move(body)} {}
 
 			const std::string& getIdentifier() const { return identifier; }
 			const std::vector<std::unique_ptr<Parameter>>& getParameters() const { return parameters; }
@@ -277,7 +277,7 @@ namespace tvl {
 		class FunctionCall : public Expression {
 		public:
 			FunctionCall(std::string callee, std::vector<std::unique_ptr<Expression>> arguments, Location loc)
-					: Expression{FunctionCallNode, std::move(loc)}, callee{std::move(callee)},
+					: Expression{FunctionCallNode, loc}, callee{std::move(callee)},
 					arguments{std::move(arguments)} {}
 
 			const std::string& getCallee() const { return callee; }
@@ -303,7 +303,7 @@ namespace tvl {
 
 			BinaryOperator(Type operatorType, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs,
 					Location loc)
-					: Expression{BinaryOperatorNode, std::move(loc)}, operatorType{operatorType}, lhs{std::move(lhs)},
+					: Expression{BinaryOperatorNode, loc}, operatorType{operatorType}, lhs{std::move(lhs)},
 					rhs{std::move(rhs)} {}
 
 			Type getOperatorType() const { return operatorType; }
@@ -322,7 +322,7 @@ namespace tvl {
 		class Declaration : public Statement {
 		public:
 			Declaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					NodeType type, Location loc) : Statement{type, std::move(loc)},
+					NodeType type, Location loc) : Statement{type, loc},
 					typeIdentifier{std::move(typeIdentifier)}, name{std::move(name)},
 					expression{std::move(expression)} {};
 
@@ -345,7 +345,7 @@ namespace tvl {
 		public:
 			ConstDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
-					ConstDeclarationNode, std::move(loc)} {};
+					ConstDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == ConstDeclarationNode; }
@@ -355,7 +355,7 @@ namespace tvl {
 		public:
 			LetDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
-					LetDeclarationNode, std::move(loc)} {};
+					LetDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == LetDeclarationNode; }
@@ -365,7 +365,7 @@ namespace tvl {
 		public:
 			LetMutDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
-					LetMutDeclarationNode, std::move(loc)} {};
+					LetMutDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == LetMutDeclarationNode; }
@@ -374,7 +374,7 @@ namespace tvl {
 		class ForLoop : public Statement {
 		public:
 			ForLoop(std::string loopVariable, std::unique_ptr<Expression> iterable, StatementList body, Location loc)
-					: Statement{ForLoopNode, std::move(loc)}, loopVariable{std::move(loopVariable)},
+					: Statement{ForLoopNode, loc}, loopVariable{std::move(loopVariable)},
 					iterable{std::move(iterable)}, body{std::move(body)} {}
 
 			const std::string& getLoopVariable() const { return loopVariable; }
@@ -395,8 +395,8 @@ namespace tvl {
 			std::vector<std::unique_ptr<Function>> functions;
 
 		public:
-			Module(Location loc)
-					: Node(ModuleNode, std::move(loc)) {}
+			explicit Module(Location loc)
+					: Node{ModuleNode, loc} {}
 
 			void addFunction(std::unique_ptr<Function> function) { functions.push_back(std::move(function)); }
 			const std::vector<std::unique_ptr<Function>>& getFunctions() const { return functions; }

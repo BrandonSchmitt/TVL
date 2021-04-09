@@ -58,8 +58,8 @@ namespace {
 template<typename T>
 static std::string loc(const T* node) {
 	const auto& loc = node->getLocation();
-	return (llvm::Twine("@") + (loc.begin.filename == nullptr ? llvm::Twine("nullptr") : *loc.begin.filename) + ":" +
-			llvm::Twine(loc.begin.line) + ":" + llvm::Twine(loc.begin.column)).str();
+	return (llvm::Twine("@") + loc.begin.filename + ":" + llvm::Twine(loc.begin.line) + ":" +
+			llvm::Twine(loc.begin.column)).str();
 }
 
 // Helper Macro to bump the indentation level and print the leading spaces for
@@ -148,7 +148,8 @@ void ASTDumper::dump(const Expression* expr) {
 
 void ASTDumper::dump(const ForLoop* node) {
 	INDENT();
-	llvm::errs() << "For Loop, loop variable '" << node->getLoopVariable() << "', (iterable, body) = ( " << loc(node) << "\n";
+	llvm::errs() << "For Loop, loop variable '" << node->getLoopVariable() << "', (iterable, body) = ( " << loc(node)
+			<< "\n";
 	dump(node->getIterable().get());
 	dump(&node->getBody());
 	indent();

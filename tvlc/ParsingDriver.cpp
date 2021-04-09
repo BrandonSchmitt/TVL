@@ -1,7 +1,7 @@
 #include "tvl/ParsingDriver.h"
 
 int tvl::ParsingDriver::parse(llvm::StringRef filename, llvm::StringRef source) {
-	location.initialize(std::make_shared<std::string>(filename));
+	location.initialize(filename);
 	module = std::make_unique<tvl::ast::Module>(location);
 
 	beginScan(source);

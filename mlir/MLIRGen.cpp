@@ -80,7 +80,7 @@ namespace {
 
 		/// Helper conversion for a TVL AST location to an MLIR location.
 		mlir::Location loc(const ast::Location& loc) {
-			return mlir::FileLineColLoc::get(builder.getIdentifier(*loc.begin.filename), loc.begin.line,
+			return mlir::FileLineColLoc::get(builder.getIdentifier(loc.begin.filename), loc.begin.line,
 					loc.begin.column);
 		}
 

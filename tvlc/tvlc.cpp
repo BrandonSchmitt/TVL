@@ -3,6 +3,7 @@
 #include "tvl/MLIRGen.h"
 #include "tvl/ParsingDriver.h"
 #include "tvl/Passes.h"
+#include "tvl/TypeInference.h"
 
 #include "mlir/ExecutionEngine/ExecutionEngine.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -73,7 +74,12 @@ std::unique_ptr<tvl::ast::Module> parseInputFile(llvm::StringRef filename) {
 	if (parsingDriver.parse(filename, buffer) != 0) {
 		return nullptr;
 	}
-	return parsingDriver.getModule();
+
+	auto module = parsingDriver.getModule();
+	if (!inferTypes(*module)) {
+		return nullptr;
+	}
+	return module;
 }
 
 int loadMLIR(mlir::MLIRContext& context, mlir::OwningModuleRef& module) {

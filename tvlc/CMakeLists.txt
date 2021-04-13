@@ -19,6 +19,7 @@ add_llvm_executable(tvlc
         tvlc.cpp
         ParsingDriver.cpp
         AST.cpp
+        TypeInference.cpp
         ../mlir/MLIRGen.cpp
         ../mlir/LowerToLLVM.cpp
         ../mlir/LowerToSCF.cpp

@@ -113,7 +113,7 @@ array-elements:
     array-elements "," expression { $$ = $1; $$.push_back($3); } ;
 
 const-declaration:
-    "const" "identifier" "identifier" "=" expression { $$ = make_unique<ConstDeclaration>($2, $3, $5, @$); } ;
+    "const" "identifier" "=" expression { $$ = make_unique<ConstDeclaration>($2, $4, @$); } ;
 
 declaration:
     const-declaration { $$ = $1; } |
@@ -139,10 +139,10 @@ function:
 	"fn" "identifier" "(" parameter-list ")" "{" statement-list "}"	{ $$ = make_unique<Function>($2, $4, $7, @$); };
 
 let-declaration:
-	"let" "identifier" "identifier" "=" expression { $$ = make_unique<LetDeclaration>($2, $3, $5, @$); } ;	/* maybe introduce an extra type-identifier? For future cases which could use templating/generics? */
+	"let" "identifier" "=" expression { $$ = make_unique<LetDeclaration>($2, $4, @$); } ;	/* maybe introduce an extra type-identifier? For future cases which could use templating/generics? */
 
 let-mut-declaration:
-	"let" "mut" "identifier" "identifier" "=" expression { $$ = make_unique<LetMutDeclaration>($3, $4, $6, @$); } ;	/* maybe introduce an extra type-identifier? For future cases which could use templating/generics? */
+	"let" "mut" "identifier" "=" expression { $$ = make_unique<LetMutDeclaration>($3, $5, @$); } ;	/* maybe introduce an extra type-identifier? For future cases which could use templating/generics? */
 
 module:
 	EOF             { } |

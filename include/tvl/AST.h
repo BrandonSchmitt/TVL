@@ -7,12 +7,15 @@
 #include <utility>
 #include <vector>
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace tvl {
 	namespace ast {
 		// Forward declarations
 		class Array;
+		class ArrayIndexing;
 		class Assignment;
 		class BinaryOperator;
 		class ConstDeclaration;
@@ -20,7 +23,6 @@ namespace tvl {
 		class Function;
 		class FunctionCall;
 		class Identifier;
-		class Index;
 		class LetDeclaration;
 		class LetMutDeclaration;
 		class Module;
@@ -83,16 +85,51 @@ namespace tvl {
 			}
 		};
 
+		struct LangType {
+			LangType() {}
+			explicit LangType(std::string baseType) : baseType{std::move(baseType)} {}
+			explicit LangType(llvm::SmallVector<int64_t, 2> shape) : shape{std::move(shape)} {}
+			LangType(std::string baseType, llvm::SmallVector<int64_t, 2> shape) : baseType{std::move(baseType)},
+					shape{std::move(shape)} {}
+
+			bool operator==(const LangType& other) const { return baseType == other.baseType && shape == other.shape; }
+			bool operator!=(const LangType& other) const { return !(*this == other); }
+
+			bool empty() const { return baseType.empty() && shape.empty(); }
+			bool emptyBaseType() const { return baseType.empty(); }
+			bool compatible(const LangType& other) const {
+				return empty() || other.empty() || (shape == other.shape &&
+						(baseType.empty() || other.baseType.empty() || baseType == other.baseType));
+			}
+			bool incomplete() const { return baseType.empty(); }
+
+			std::string baseType;
+			llvm::SmallVector<int64_t, 2> shape;
+
+			friend llvm::raw_ostream& operator<<(llvm::raw_ostream& output, const LangType& type) {
+				output << type.baseType;
+				for (size_t i = 0, length = type.shape.size(); i < length; ++i) {
+					output << '[' << type.shape[i] << ']';
+				}
+				return output;
+			}
+		};
+
+		static const LangType EMPTY_TYPE = LangType{};
+		static const LangType INDEX_TYPE = LangType{"index"};
+		static const LangType RANGE_TYPE = LangType{"range"};
+		static const LangType U64_TYPE = LangType{"u64"};
+
 		enum NodeType {
 			STATEMENTS_BEGIN,
 
 			EXPRESSIONS_BEGIN = STATEMENTS_BEGIN,
 			ArrayNode = EXPRESSIONS_BEGIN,
+			ArrayIndexingNode,
 			AssignmentNode,
 			BinaryOperatorNode,
 			FunctionCallNode,
 			IdentifierNode,
-			ArrayIndexingNode,
 			NumberNode,
 			RangeNode,
 			EXPRESSIONS_END,
@@ -144,10 +181,16 @@ namespace tvl {
 		public:
 			Expression(NodeType type, Location loc) : Statement{type, loc} {}
 
+			const LangType& getEmittingLangType() const { return emittingLangType; }
+			void setEmittingLangType(const LangType& type) { emittingLangType = type; }
+
 			/// LLVM style RTTI
 			static bool classof(const Node* node) {
 				return node->getType() >= EXPRESSIONS_BEGIN && node->getType() < EXPRESSIONS_END;
 			}
+
+		private:
+			LangType emittingLangType;
 		};
 
 		class Array : public Expression {
@@ -227,7 +270,7 @@ namespace tvl {
 			Range(std::unique_ptr<Expression> start, std::unique_ptr<Expression> end, Location loc)
 					: Expression{RangeNode, loc}, start{std::move(start)}, end{std::move(end)} {}
 
-			const std::unique_ptr<Expression>& getStart() const { return start; }
+			const std::unique_ptr<Expression>& getBegin() const { return start; }
 			const std::unique_ptr<Expression>& getEnd() const { return end; }
 
 			/// LLVM style RTTI
@@ -243,14 +286,14 @@ namespace tvl {
 			Parameter(std::string typeIdentifier, std::string name, Location loc)
 					: Node{ParameterNode, loc}, typeIdentifier{std::move(typeIdentifier)}, name{std::move(name)} {}
 
-			const std::string& getTypeIdentifier() const { return typeIdentifier; }
+			const LangType& getTypeIdentifier() const { return typeIdentifier; }
 			const std::string& getName() const { return name; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == ParameterNode; }
 
 		private:
-			std::string typeIdentifier;
+			LangType typeIdentifier;
 			std::string name;
 		};
 
@@ -321,12 +364,15 @@ namespace tvl {
 
 		class Declaration : public Statement {
 		public:
-			Declaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					NodeType type, Location loc) : Statement{type, loc},
-					typeIdentifier{std::move(typeIdentifier)}, name{std::move(name)},
-					expression{std::move(expression)} {};
+			Declaration(std::string name, std::unique_ptr<Expression> expression, NodeType type, Location loc)
+					: Statement{type, loc}, name{std::move(name)}, expression{std::move(expression)} {};
 
-			const std::string& getTypeIdentifier() const { return typeIdentifier; }
+			Declaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
+					NodeType type, Location loc) : Statement{type, loc}, typeIdentifier{std::move(typeIdentifier)},
+					name{std::move(name)}, expression{std::move(expression)} {};
+
+			const LangType& getTypeIdentifier() const { return typeIdentifier; }
+			void setTypeIdentifier(const LangType& type) { typeIdentifier = type; }
 			const std::string& getName() const { return name; }
 			const std::unique_ptr<Expression>& getExpression() const { return expression; }
 
@@ -336,13 +382,16 @@ namespace tvl {
 			}
 
 		private:
-			const std::string typeIdentifier;
+			LangType typeIdentifier;
 			const std::string name;
 			const std::unique_ptr<Expression> expression;
 		};
 
 		class ConstDeclaration : public Declaration {
 		public:
+			ConstDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+					: Declaration{std::move(name), std::move(expression), ConstDeclarationNode, loc} {};
+
 			ConstDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					ConstDeclarationNode, loc} {};
@@ -353,6 +402,9 @@ namespace tvl {
 
 		class LetDeclaration : public Declaration {
 		public:
+			LetDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+					: Declaration{std::move(name), std::move(expression), LetDeclarationNode, loc} {};
+
 			LetDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					LetDeclarationNode, loc} {};
@@ -363,6 +415,9 @@ namespace tvl {
 
 		class LetMutDeclaration : public Declaration {
 		public:
+			LetMutDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+					: Declaration{std::move(name), std::move(expression), LetMutDeclarationNode, loc} {};
+
 			LetMutDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
 					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					LetMutDeclarationNode, loc} {};

@@ -112,22 +112,15 @@ namespace {
 
 			for (size_t i = 0; i < arrayLength; ++i) {
 				mlir::Value index = builder.create<ConstantOp>(location, builder.getIndexAttr(i));
-				builder.create<mlir::memref::StoreOp>(location, mlirGen(*node.getElements().at(i)), memRef, mlir::ValueRange(index));
+				builder.create<mlir::memref::StoreOp>(location, mlirGen(*node.getElements().at(i)), memRef,
+						mlir::ValueRange(index));
 			}
 			return memRef;
 		}
 
 		mlir::Value mlirGen(const ast::ArrayIndexing& node) {
-			mlir::Value index;
-			switch (node.getIndex()->getType()) {
-				case ast::NumberNode:
-					index = mlirGenIndex(cast<ast::Number>(*node.getIndex()));
-					break;
-				default:
-					index = mlirGen(*node.getIndex());
-					break;
-			}
-			return builder.create<LoadOp>(loc(node.getLocation()), mlirGen(*node.getArray()), index);
+			return builder.create<LoadOp>(loc(node.getLocation()), mlirGen(*node.getArray()),
+					mlirGen(*node.getIndex()));
 		}
 
 		mlir::Value mlirGen(const ast::Assignment& node) {
@@ -144,11 +137,10 @@ namespace {
 
 			// Register the value in the symbol table.
 			switch (node.getPlace()->getType()) {
-				case ast::ArrayIndexingNode:
-				{
+				case ast::ArrayIndexingNode: {
 					auto& place = cast<ast::ArrayIndexing>(*node.getPlace());
 					auto memRef = mlirGen(*place.getArray());
-					auto index = mlirGenIndex(cast<ast::Number>(*place.getIndex()));
+					auto index = mlirGen(*place.getIndex());
 					builder.create<StoreOp>(loc(node.getLocation()), value, memRef, index);
 					break;
 				}
@@ -245,21 +237,11 @@ namespace {
 				return mlir::failure();
 			}
 			auto& range = cast<ast::Range>(*iterable);
-			if (!isa<ast::Number>(*range.getStart())) {
-				emitError(loc(range.getStart()->getLocation()),
-						"error: range's start index must be a number at the moment");
-				return mlir::failure();
-			}
-			if (!isa<ast::Number>(*range.getEnd())) {
-				emitError(loc(range.getEnd()->getLocation()),
-						"error: range's end index must be a number at the moment");
-				return mlir::failure();
-			}
 
 			auto location = loc(node.getLocation());
 
-			ForOp forOp = builder.create<ForOp>(location, llvm::None, mlirGenIndex(cast<ast::Number>(*range.getStart())),
-					mlirGenIndex(cast<ast::Number>(*range.getEnd())));
+			ForOp forOp = builder.create<ForOp>(location, llvm::None, mlirGen(*range.getBegin()),
+					mlirGen(*range.getEnd()));
 			auto& region = forOp.region();
 			region.push_back(new mlir::Block());
 			auto& body = region.front();
@@ -370,11 +352,13 @@ namespace {
 
 		/// Emit a constant for a single number (FIXME: semantic? broadcast?)
 		mlir::Value mlirGen(const ast::Number& num) {
-			return builder.create<ConstantOp>(loc(num.getLocation()), builder.getI64IntegerAttr(num.getValue()));
-		}
-
-		mlir::Value mlirGenIndex(const ast::Number& node) {
-			return builder.create<ConstantOp>(loc(node.getLocation()), builder.getIndexAttr(node.getValue()));
+			mlir::Attribute attribute;
+			if (num.getEmittingLangType() == ast::U64_TYPE) {
+				attribute = builder.getI64IntegerAttr(num.getValue());
+			} else {
+				attribute = builder.getIndexAttr(num.getValue());
+			}
+			return builder.create<ConstantOp>(loc(num.getLocation()), attribute);
 		}
 
 		mlir::LogicalResult mlirGen(const ast::Statement& statement) {

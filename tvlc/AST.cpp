@@ -71,7 +71,7 @@ static std::string loc(const T* node) {
 
 void ASTDumper::dump(const Array* node) {
 	INDENT();
-	llvm::errs() << "Array: [ " << loc(node) << "\n";
+	llvm::errs() << "Array (" << node->getEmittingLangType() << "): [ " << loc(node) << "\n";
 	for (auto& expr : node->getElements()) {
 		dump(expr.get());
 	}
@@ -81,7 +81,7 @@ void ASTDumper::dump(const Array* node) {
 
 void ASTDumper::dump(const ArrayIndexing* node) {
 	INDENT();
-	llvm::errs() << "Array Indexing: (array, index) = ( " << loc(node) << "\n";
+	llvm::errs() << "Array Indexing (" << node->getEmittingLangType() << "): (array, index) = ( " << loc(node) << "\n";
 	dump(node->getArray().get());
 	dump(node->getIndex().get());
 	indent();
@@ -90,7 +90,7 @@ void ASTDumper::dump(const ArrayIndexing* node) {
 
 void ASTDumper::dump(const Assignment* node) {
 	INDENT();
-	llvm::errs() << "Assignment: (place, value) = ( '" << loc(node) << "\n";
+	llvm::errs() << "Assignment (" << node->getEmittingLangType() << "): (place, value) = ( '" << loc(node) << "\n";
 	dump(node->getPlace().get());
 	dump(node->getValue().get());
 	indent();
@@ -99,7 +99,7 @@ void ASTDumper::dump(const Assignment* node) {
 
 void ASTDumper::dump(const BinaryOperator* node) {
 	INDENT();
-	llvm::errs() << "Binary Operator ";
+	llvm::errs() << "Binary Operator (" << node->getEmittingLangType() << ") ";
 	switch (node->getOperatorType()) {
 		case BinaryOperator::Addition:
 			llvm::errs() << "+";
@@ -180,19 +180,19 @@ void ASTDumper::dump(const FunctionCall* node) {
 /// Print a variable reference (just a name).
 void ASTDumper::dump(const Identifier* node) {
 	INDENT();
-	llvm::errs() << "var: " << node->getName() << " " << loc(node) << "\n";
+	llvm::errs() << "var (" << node->getEmittingLangType() << "): " << node->getName() << " " << loc(node) << "\n";
 }
 
 /// A literal number, just print the value.
-void ASTDumper::dump(const Number* num) {
+void ASTDumper::dump(const Number* node) {
 	INDENT();
-	llvm::errs() << num->getValue() << " " << loc(num) << "\n";
+	llvm::errs() << node->getValue() << " (" << node->getEmittingLangType() << ") " << loc(node) << "\n";
 }
 
 void ASTDumper::dump(const Range* node) {
 	INDENT();
 	llvm::errs() << "Range (start end) = ( " << loc(node) << "\n";
-	dump(node->getStart().get());
+	dump(node->getBegin().get());
 	dump(node->getEnd().get());
 	indent();
 	llvm::errs() << ") // Range\n";

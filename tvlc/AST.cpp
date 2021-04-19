@@ -34,7 +34,7 @@ namespace {
 		void dump(const Function* node);
 		void dump(const FunctionCall* node);
 		void dump(const Identifier* node);
-		void dump(const Number* node);
+		void dump(const Integer* node);
 		void dump(const Range* node);
 		void dump(const Statement* node);
 		void dump(const StatementList* node);
@@ -136,7 +136,7 @@ void ASTDumper::dump(const Declaration* node) {
 /// Dispatch to a generic expressions to the appropriate subclass using RTTI
 void ASTDumper::dump(const Expression* expr) {
 	llvm::TypeSwitch<const Expression*>(expr)
-			.Case<Array, ArrayIndexing, Assignment, BinaryOperator, FunctionCall, Identifier, Number, Range>(
+			.Case<Array, ArrayIndexing, Assignment, BinaryOperator, FunctionCall, Identifier, Integer, Range>(
 					[&](auto* node) { this->dump(node); })
 			.Default([&](const Expression*) {
 				// No match, fallback to a generic message
@@ -184,7 +184,7 @@ void ASTDumper::dump(const Identifier* node) {
 }
 
 /// A literal number, just print the value.
-void ASTDumper::dump(const Number* node) {
+void ASTDumper::dump(const Integer* node) {
 	INDENT();
 	llvm::errs() << node->getValue() << " (" << node->getEmittingLangType() << ") " << loc(node) << "\n";
 }

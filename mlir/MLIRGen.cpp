@@ -215,8 +215,8 @@ namespace {
 					return mlirGen(cast<ast::FunctionCall>(node));
 				case ast::IdentifierNode:
 					return mlirGen(cast<ast::Identifier>(node));
-				case ast::NumberNode:
-					return mlirGen(cast<ast::Number>(node));
+				case ast::IntegerNode:
+					return mlirGen(cast<ast::Integer>(node));
 				case ast::RangeNode:
 					emitError(loc(node.getLocation())) << "MLIR codegen does not yet support range expressions.";
 					return nullptr;
@@ -351,12 +351,34 @@ namespace {
 		}
 
 		/// Emit a constant for a single number (FIXME: semantic? broadcast?)
-		mlir::Value mlirGen(const ast::Number& num) {
+		mlir::Value mlirGen(const ast::Integer& num) {
 			mlir::Attribute attribute;
-			if (num.getEmittingLangType() == ast::U64_TYPE) {
-				attribute = builder.getI64IntegerAttr(num.getValue());
-			} else {
-				attribute = builder.getIndexAttr(num.getValue());
+			switch (num.getEmittingLangType().baseType) {
+				case u64:
+					attribute = builder.getI64IntegerAttr(num.getValue());
+					break;
+				case u32:
+					attribute = builder.getI32IntegerAttr(num.getValue());
+					break;
+				case u16:
+					attribute = builder.getI16IntegerAttr(num.getValue());
+					break;
+				case u8:
+					attribute = builder.getI8IntegerAttr(num.getValue());
+					break;
+				case usize:
+					attribute = builder.getIndexAttr(num.getValue());
+					break;
+				case f64:
+					attribute = builder.getF64FloatAttr(num.getValue());
+					break;
+				case f32:
+					attribute = builder.getF32FloatAttr(num.getValue());
+					break;
+				default:
+					emitError(loc(num.getLocation())) << "Unknown integer type: "
+							<< static_cast<int>(num.getEmittingLangType().baseType);
+					return nullptr;
 			}
 			return builder.create<ConstantOp>(loc(num.getLocation()), attribute);
 		}

@@ -3,9 +3,8 @@
 
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/ScopedHashTable.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Support/Casting.h"
 
+#include <memory>
 #include <string>
 
 using namespace tvl;
@@ -13,15 +12,19 @@ using namespace tvl::ast;
 
 using llvm::cast;
 using llvm::isa;
+using DeclarationVector = llvm::SmallVector<Declaration*, 4>;
+using ExpressionVector = llvm::SmallVector<Expression*, 4>;
+using VariableSourceVector = llvm::SmallVector<Statement*, 4>;
 
 namespace {
 	class TypeInference {
 	public:
-		bool inferTypesBottomUp(Module& module) {
-			llvm::ScopedHashTableScope<llvm::StringRef, LangType> moduleScope(symbolTable);
+		bool inferBottomUp(Module& module) {
+			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> moduleVariableSourceScope(variableSourceTable);
+			declarationsInScope = std::make_shared<DeclarationVector>();
 
 			for (auto& f : module.getFunctions()) {
-				if (!inferTypesBottomUp(*f)) {
+				if (!inferBottomUp(*f)) {
 					return false;
 				}
 			}
@@ -30,32 +33,43 @@ namespace {
 		}
 
 	private:
-		llvm::ScopedHashTable<llvm::StringRef, LangType> symbolTable;
-		llvm::SmallMapVector<llvm::StringRef, Declaration*, 4> identifiersWithUnknownTypes;
+		llvm::ScopedHashTable<llvm::StringRef, Statement*> variableSourceTable;
+		llvm::MapVector<Identifier*, Statement*> identifierSources;
+		llvm::SmallMapVector<Statement*, ExpressionVector, 4> variablesToDependingExpressions;
+		std::shared_ptr<VariableSourceVector> usedIdentifiersWithIncompleteTypes;
+		std::shared_ptr<DeclarationVector> declarationsInScope;
 
-		bool inferTypesBottomUp(Array& array) {
-			const LangType* elementType = nullptr;
+		bool inferBottomUp(Array& array) {
+			LangType elementType{unknown};
 			for (auto& element : array.getElements()) {
-				if (!inferTypesBottomUp(*element)) {
+				if (!inferBottomUp(*element)) {
 					return false;
 				}
 
-				if (elementType == nullptr) {
-					elementType = &element->getEmittingLangType();
-				} else if (*elementType != element->getEmittingLangType()) {
-					// Todo: Emit error
+				if (!LangType::compatible(elementType, element->getEmittingLangType())) {
+					llvm::errs() /*<< identifier.getLocation()*/
+							<< ": All elements of an array must be of the same type\n";
 					return false;
+				}
+
+				elementType = LangType::intersect(elementType, element->getEmittingLangType());
+			}
+
+			if (!elementType.incomplete()) {
+				for (auto& element : array.getElements()) {
+					if (!inferTopDown(*element, elementType)) {
+						return false;
+					}
 				}
 			}
 
-			LangType arrayType{*elementType};
-			arrayType.shape.emplace_back(static_cast<int64_t>(array.getElements().size()));
-			array.setEmittingLangType(arrayType);
+			elementType.shape.emplace_back(static_cast<int64_t>(array.getElements().size()));
+			array.setEmittingLangType(elementType);
 
 			return true;
 		}
 
-		bool inferIncompleteTypeTopDown(Array& array, const LangType& type) {
+		bool inferTopDown(Array& array, const LangType& type) {
 			if (type.shape.empty()) {
 				// Todo: Emit error
 				return false;
@@ -66,7 +80,7 @@ namespace {
 			auto elementType = type;
 			elementType.shape.pop_back();
 			for (auto& element : array.getElements()) {
-				if (!inferTypesTopDown(*element, elementType)) {
+				if (!inferTopDown(*element, elementType)) {
 					return false;
 				}
 			}
@@ -74,19 +88,15 @@ namespace {
 			return true;
 		}
 
-		bool inferTypesBottomUp(ArrayIndexing& arrayIndexing) {
+		bool inferBottomUp(ArrayIndexing& arrayIndexing) {
 			auto& array = *arrayIndexing.getArray();
 			auto& index = *arrayIndexing.getIndex();
-			if (!inferTypesBottomUp(array) || !inferTypesBottomUp(index)) {
+			if (!inferBottomUp(array) || !inferBottomUp(index)) {
 				return false;
 			}
 
 			if (array.getEmittingLangType().shape.empty()) {
-				// Todo: emit error
-				return false;
-			}
-
-			if (!inferTypesTopDown(index, INDEX_TYPE)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": Indexing only works on arrays\n";
 				return false;
 			}
 
@@ -94,138 +104,145 @@ namespace {
 			elementType.shape.pop_back();
 			arrayIndexing.setEmittingLangType(elementType);
 
-			return true;
+			return inferTopDown(index, usizeType);
 		}
 
-		bool inferIncompleteTypeTopDown(ArrayIndexing& arrayIndexing, const LangType& type) {
+		bool inferTopDown(ArrayIndexing& arrayIndexing, const LangType& type) {
 			arrayIndexing.setEmittingLangType(type);
 
 			auto arrayType{type};
 			arrayType.shape.push_back(0);
-			return inferTypesTopDown(*arrayIndexing.getArray(), arrayType);
+			return inferTopDown(*arrayIndexing.getArray(), arrayType);
 
 			// top-down-pass for index already done in bottom-up-phase of ArrayIndexing
 		}
 
-		bool inferTypesBottomUp(Assignment& assignment) {
+		bool inferBottomUp(Assignment& assignment) {
 			auto& place = *assignment.getPlace();
 			auto& value = *assignment.getValue();
 
-			if (!inferTypesBottomUp(place) || !inferTypesBottomUp(value)) {
+			if (!inferBottomUp(place) || !inferBottomUp(value)) {
 				return false;
 			}
 
 			auto& placeType = place.getEmittingLangType();
 			auto& valueType = value.getEmittingLangType();
-			if (!placeType.compatible(valueType)) {
-				// Todo: Emit error
+			if (!LangType::compatible(placeType, valueType)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": Cannot assign a value of type " << valueType
+						<< " to a variable of type " << placeType << "\n";
 				return false;
 			}
 
-			auto mergedType = mergeTypes(placeType, valueType);
-			assignment.setEmittingLangType(mergedType);
-			if (!mergedType.incomplete()) {
-				return inferTypesTopDown(*assignment.getPlace(), mergedType) && inferTypesTopDown(*assignment.getValue(), mergedType);
-			}
-			return true;
+			return inferTopDown(assignment, LangType::intersect(placeType, valueType));
 		}
 
-		bool inferIncompleteTypeTopDown(Assignment& assignment, const LangType& type) {
+		bool inferTopDown(Assignment& assignment, const LangType& type) {
 			assignment.setEmittingLangType(type);
-
-			if (!type.compatible(assignment.getEmittingLangType())) {
-				// Todo: Emit error
-				return false;
-			}
-
-			return inferTypesTopDown(*assignment.getPlace(), type) && inferTypesTopDown(*assignment.getValue(), type);
+			return inferTopDown(*assignment.getPlace(), type) && inferTopDown(*assignment.getValue(), type);
 		}
 
-		bool inferTypesBottomUp(BinaryOperator& binaryOperator) {
+		bool inferBottomUp(BinaryOperator& binaryOperator) {
 			auto& lhs = *binaryOperator.getLhs();
 			auto& rhs = *binaryOperator.getRhs();
 
-			if (!inferTypesBottomUp(lhs) || !inferTypesBottomUp(rhs)) {
+			if (!inferBottomUp(lhs) || !inferBottomUp(rhs)) {
 				return false;
 			}
 
 			auto& lhsType = lhs.getEmittingLangType();
 			auto& rhsType = rhs.getEmittingLangType();
 
-			if (!lhsType.compatible(rhsType)) {
-				// Todo: Emit error
+			if (!LangType::compatible(lhsType, numberType)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": type " << lhsType << " or lhs is not a number\n";
 				return false;
 			}
 
-			binaryOperator.setEmittingLangType(mergeTypes(lhsType, rhsType));
-			return true;
+			if (!LangType::compatible(rhsType, numberType)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": type " << rhsType << " or rhs is not a number\n";
+				return false;
+			}
+
+			if (!LangType::compatible(lhsType, rhsType)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": type " << lhsType
+						<< " of lhs is incompatible to type " << rhsType << " of rhs\n";
+				return false;
+			}
+
+			return inferTopDown(binaryOperator, LangType::intersect(numberType, LangType::intersect(lhsType, rhsType)));
 		}
 
-		bool inferIncompleteTypeTopDown(BinaryOperator& binaryOperator, const LangType& type) {
+		bool inferTopDown(BinaryOperator& binaryOperator, const LangType& type) {
 			binaryOperator.setEmittingLangType(type);
-			return inferTypesTopDown(*binaryOperator.getLhs(), type) &&
-					inferTypesTopDown(*binaryOperator.getRhs(), type);
+			return inferTopDown(*binaryOperator.getLhs(), type) && inferTopDown(*binaryOperator.getRhs(), type);
 		}
 
-		bool inferTypesBottomUp(Declaration& declaration) {
+		bool inferBottomUp(Declaration& declaration) {
 			auto& initExpression = *declaration.getExpression();
-			if (!inferTypesBottomUp(initExpression)) {
+			if (!inferBottomUp(initExpression)) {
 				return false;
 			}
 
 			auto& initExpressionType = initExpression.getEmittingLangType();
 
-			if (declaration.getTypeIdentifier().incomplete() && initExpressionType.incomplete()) {
-				identifiersWithUnknownTypes.insert({declaration.getName(), &declaration});
-			}
-
-			if (!declaration.getTypeIdentifier().compatible(initExpressionType)) {
-				// Todo: Emit error
+			if (!LangType::compatible(declaration.getTypeIdentifier(), initExpressionType)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": type " << declaration.getTypeIdentifier()
+						<< " is incompatible to " << initExpressionType << "\n";
 				return false;
 			}
 
-			auto type = mergeTypes(declaration.getTypeIdentifier(), initExpressionType);
+			auto type = LangType::intersect(declaration.getTypeIdentifier(), initExpressionType);
 			if (!type.incomplete()) {
-				if (!inferTypesTopDown(initExpression, type)) {
+				if (!inferTopDown(initExpression, type)) {
 					return false;
 				}
 			}
 
-			symbolTable.insert(declaration.getName(), type);
+			variableSourceTable.insert(declaration.getName(), &declaration);
+			declarationsInScope->push_back(&declaration);
 			return true;
 		}
 
-		bool inferTypesTopDown(Declaration& declaration, const LangType& type) {
-			identifiersWithUnknownTypes.erase(declaration.getName());
-			if (type == EMPTY_TYPE) {
-				auto incompleteType = declaration.getExpression()->getEmittingLangType();
-				incompleteType.baseType = "u64";
-				declaration.setTypeIdentifier(incompleteType);
-				return inferTypesTopDown(*declaration.getExpression(), incompleteType);
-			} else {
-				declaration.setTypeIdentifier(type);
-				return inferTypesTopDown(*declaration.getExpression(), type);
+		bool inferTopDown(Declaration& declaration, const LangType& type) {
+			declaration.setTypeIdentifier(type);
+			if (!inferTopDown(*declaration.getExpression(), type)) {
+				return false;
 			}
+
+			if (variablesToDependingExpressions.count(&declaration) > 0) {
+				auto dependingExpressions = variablesToDependingExpressions.lookup(&declaration);
+				auto oldUsedIdentifiersWithIncompleteTypes = usedIdentifiersWithIncompleteTypes;
+				usedIdentifiersWithIncompleteTypes = std::make_shared<VariableSourceVector>();
+				for (auto expression : dependingExpressions) {
+					if (expression->getEmittingLangType().incomplete() && !inferBottomUp(*expression)) {
+						return false;
+					}
+				}
+
+				// Information already recorded. Drop it.
+				usedIdentifiersWithIncompleteTypes = oldUsedIdentifiersWithIncompleteTypes;
+			}
+
+			return true;
 		}
 
-		bool inferTypesBottomUp(Expression& expression) {
+		bool inferBottomUp(Expression& expression) {
 			switch (expression.getType()) {
 				case ast::ArrayNode:
-					return inferTypesBottomUp(cast<Array>(expression));
+					return inferBottomUp(cast<Array>(expression));
 				case ast::ArrayIndexingNode:
-					return inferTypesBottomUp(cast<ArrayIndexing>(expression));
+					return inferBottomUp(cast<ArrayIndexing>(expression));
 				case ast::AssignmentNode:
-					return inferTypesBottomUp(cast<Assignment>(expression));
+					return inferBottomUp(cast<Assignment>(expression));
 				case ast::BinaryOperatorNode:
-					return inferTypesBottomUp(cast<BinaryOperator>(expression));
+					return inferBottomUp(cast<BinaryOperator>(expression));
 				case ast::FunctionCallNode:
-					return inferTypesBottomUp(cast<FunctionCall>(expression));
+					return inferBottomUp(cast<FunctionCall>(expression));
 				case ast::IdentifierNode:
-					return inferTypesBottomUp(cast<Identifier>(expression));
-				case ast::NumberNode:
-					return inferTypesBottomUp(cast<Number>(expression));
+					return inferBottomUp(cast<Identifier>(expression));
+				case ast::IntegerNode:
+					return inferBottomUp(cast<Integer>(expression));
 				case ast::RangeNode:
-					return inferTypesBottomUp(cast<Range>(expression));
+					return inferBottomUp(cast<Range>(expression));
 				default:
 					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
 							"Not all expressions covered in TypeInferencePass.");
@@ -233,115 +250,212 @@ namespace {
 			}
 		}
 
-		bool inferTypesTopDown(Expression& expression, const LangType& type) {
-			if (expression.getEmittingLangType().incomplete()) {
-				switch (expression.getType()) {
-					case ast::ArrayNode:
-						return inferIncompleteTypeTopDown(cast<Array>(expression), type);
-					case ast::ArrayIndexingNode:
-						return inferIncompleteTypeTopDown(cast<ArrayIndexing>(expression), type);
-					case ast::AssignmentNode:
-						return inferIncompleteTypeTopDown(cast<Assignment>(expression), type);
-					case ast::BinaryOperatorNode:
-						return inferIncompleteTypeTopDown(cast<BinaryOperator>(expression), type);
-					case ast::FunctionCallNode:
-						assert(false && "Parameter types of function must already be known");
-						return false;
-					case ast::IdentifierNode:
-						return inferIncompleteTypeTopDown(cast<Identifier>(expression), type);
-					case ast::NumberNode:
-						return inferIncompleteTypeTopDown(cast<Number>(expression), type);
-					case ast::RangeNode:
-						assert(false && "Subtypes of ranges must already be known (index, index)");
-						return false;
-					default:
-						static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
-								"Not all expressions covered in TypeInferencePass.");
-						return false;
-				}
-			} else {
-				return expression.getEmittingLangType() == type;
-			}
-		}
+		bool inferTopDown(Expression& expression, const LangType& type) {
+			auto& expressionType = expression.getEmittingLangType();
 
-		bool inferTypesBottomUp(ForLoop& forLoop) {
-			if (!inferTypesBottomUp(*forLoop.getIterable())) {
+			if (!LangType::compatible(expressionType, type)) {
+				llvm::errs() /*<< identifier.getLocation()*/ << ": type " << expressionType << " is incompatible to "
+						<< type << "\n";
 				return false;
 			}
 
-			llvm::ScopedHashTableScope<llvm::StringRef, LangType> forLoopScope(symbolTable);
-			symbolTable.insert(forLoop.getLoopVariable(), INDEX_TYPE);
+			if (!expressionType.incomplete()) {
+				return true;
+			}
 
-			return inferTypesBottomUp(const_cast<StatementList&>(forLoop.getBody()));
+			const auto intersectedType = LangType::intersect(expressionType, type);
+			if (expressionType == intersectedType) {    // no new information
+				return true;
+			}
+
+			switch (expression.getType()) {
+				case ast::ArrayNode:
+					return inferTopDown(cast<Array>(expression), intersectedType);
+				case ast::ArrayIndexingNode:
+					return inferTopDown(cast<ArrayIndexing>(expression), intersectedType);
+				case ast::AssignmentNode:
+					return inferTopDown(cast<Assignment>(expression), intersectedType);
+				case ast::BinaryOperatorNode:
+					return inferTopDown(cast<BinaryOperator>(expression), intersectedType);
+				case ast::FunctionCallNode:
+					assert(false && "Parameter types of function must already be known");
+					return false;
+				case ast::IdentifierNode:
+					return inferTopDown(cast<Identifier>(expression), intersectedType);
+				case ast::IntegerNode:
+					return inferTopDown(cast<Integer>(expression), intersectedType);
+				case ast::RangeNode:
+					assert(false && "Subtypes of ranges must already be known (index, index)");
+					return false;
+				default:
+					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
+							"Not all expressions covered in TypeInferencePass.");
+					return false;
+			}
 		}
 
-		bool inferTypesBottomUp(Function& function) {
-			// Do two passes
-			return inferTypesBottomUp(const_cast<StatementList&>(function.getBody())) &&
-					inferTypesBottomUp(const_cast<StatementList&>(function.getBody()));
+		bool inferBottomUp(ForLoop& forLoop) {
+			if (!inferBottomUp(*forLoop.getIterable())) {
+				return false;
+			}
+
+			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> forLoopVariableSourceScope(variableSourceTable);
+			variableSourceTable.insert(forLoop.getLoopVariable(), &forLoop);
+
+			return inferBottomUp(const_cast<StatementList&>(forLoop.getBody()));
 		}
 
-		bool inferTypesBottomUp(FunctionCall& functionCall) {
+		bool inferBottomUp(Function& function) {
+			return inferBottomUp(const_cast<StatementList&>(function.getBody()));
+		}
+
+		bool inferBottomUp(FunctionCall& functionCall) {
 			functionCall.setEmittingLangType(LangType{"void"});    // Only support void return type right now
+			for (auto& arg : functionCall.getArguments()) {
+				if (!inferBottomUp(*arg)) {
+					return false;
+				}
+
+				if (arg->getEmittingLangType().incomplete()) {
+					if (usedIdentifiersWithIncompleteTypes->empty()) {
+						if (!inferTopDown(*arg, inferDefaults(arg->getEmittingLangType()))) {
+							return false;
+						}
+					} else {
+						for (auto declaration : *usedIdentifiersWithIncompleteTypes) {
+							if (variablesToDependingExpressions.count(declaration) == 0) {
+								variablesToDependingExpressions.insert({declaration, ExpressionVector()});
+							}
+							variablesToDependingExpressions[declaration].push_back(arg.get());
+						}
+					}
+				}
+			}
 			return true;
 		}
 
-		bool inferTypesBottomUp(Identifier& identifier) {
-			auto& name = identifier.getName();
-			if (symbolTable.count(name) != 1) {
-				//emitError(loc(identifier.getLocation()), "unknown identifier");
-				return false;
+		bool inferBottomUp(Identifier& identifier) {
+			Statement* identifierSource = nullptr;
+			if (identifierSources.count(&identifier) > 0) {
+				identifierSource = identifierSources.lookup(&identifier);
+			}
+			else {
+				auto& name = identifier.getName();
+				if (variableSourceTable.count(name) != 1) {
+					llvm::errs() /*<< identifier.getLocation()*/ << ": unknown identifier " << name << "\n";
+					//emitError(loc(identifier.getLocation()), "unknown identifier");{
+					return false;
+				}
+				identifierSource = variableSourceTable.lookup(name);
+				identifierSources.insert({&identifier, identifierSource});
 			}
 
-			identifier.setEmittingLangType(symbolTable.lookup(name));
-			return true;
-		}
-
-		bool inferIncompleteTypeTopDown(Identifier& identifier, const LangType& type) {
-			auto it = identifiersWithUnknownTypes.find(identifier.getName());
-			if (it != identifiersWithUnknownTypes.end()) {
-				return inferTypesTopDown(*it->second, type);
+			LangType type;
+			if (auto declaration = llvm::dyn_cast<Declaration>(identifierSource); declaration != nullptr) {
+				type = declaration->getExpression()->getEmittingLangType();
 			}
-
+			else if(auto forLoop = llvm::dyn_cast<ForLoop>(identifierSource); forLoop != nullptr) {
+				type = usizeType;
+			}
+			else {
+				llvm::errs() << "Unknown identifier source\n";
+			}
 			identifier.setEmittingLangType(type);
 
-			return true;
-		}
-
-		bool inferTypesBottomUp(Number& number) {
-			return true;    // Numbers can be of any integer type right now
-		}
-
-		bool inferIncompleteTypeTopDown(Number& number, const LangType& type) {
-			if (type != INDEX_TYPE && type != U64_TYPE) {
-				return false;
+			if (type.incomplete()) {
+				usedIdentifiersWithIncompleteTypes->push_back(identifierSource);
 			}
 
-			number.setEmittingLangType(type);
 			return true;
 		}
 
-		bool inferTypesBottomUp(Parameter& parameter) {
-			symbolTable.insert(parameter.getName(), parameter.getTypeIdentifier());
+		bool inferTopDown(Identifier& identifier, const LangType& type) {
+			identifier.setEmittingLangType(type);
+
+			auto source = variableSourceTable.lookup(identifier.getName());
+			return inferTopDown(*source, type);
+		}
+
+		bool inferBottomUp(Integer& integer) {
+			return true;    // Integer type already set
+		}
+
+		bool inferTopDown(Integer& integer, const LangType& type) {
+			integer.setEmittingLangType(type);
 			return true;
 		}
 
-		bool inferTypesBottomUp(Range& range) {
-			range.setEmittingLangType(RANGE_TYPE);
-			return inferTypesBottomUp(*range.getBegin()) && inferTypesBottomUp(*range.getEnd()) &&
-					inferTypesTopDown(*range.getBegin(), INDEX_TYPE) && inferTypesTopDown(*range.getEnd(), INDEX_TYPE);
+		bool inferBottomUp(Parameter& parameter) {
+			// todo: variableSourceTable.insert(parameter.getName(), &parameter);
+			return true;
 		}
 
-		bool inferTypesBottomUp(Statement& statement) {
+		bool inferBottomUp(Range& range) {
+			range.setEmittingLangType(rangeType);
+			return inferBottomUp(*range.getBegin()) && inferBottomUp(*range.getEnd()) &&
+					inferTopDown(*range.getBegin(), usizeType) && inferTopDown(*range.getEnd(), usizeType);
+		}
+
+		bool inferBottomUp(Statement& statement) {
+			auto oldUsedIdentifiersWithIncompleteTypes = usedIdentifiersWithIncompleteTypes;
+			usedIdentifiersWithIncompleteTypes = std::make_shared<VariableSourceVector>();
+
 			if (isa<ast::Expression>(statement)) {
-				return inferTypesBottomUp(cast<ast::Expression>(statement));
+				auto& expression = cast<ast::Expression>(statement);
+				if (!inferBottomUp(expression)) {
+					return false;
+				}
+
+				if (expression.getEmittingLangType().incomplete()) {
+					if (usedIdentifiersWithIncompleteTypes->empty()) {
+						if (!inferTopDown(expression, inferDefaults(expression.getEmittingLangType()))) {
+							return false;
+						}
+					} else {
+						for (auto declaration : *usedIdentifiersWithIncompleteTypes) {
+							if (variablesToDependingExpressions.count(declaration) == 0) {
+								variablesToDependingExpressions.insert({declaration, ExpressionVector()});
+							}
+							variablesToDependingExpressions[declaration].push_back(&expression);
+						}
+					}
+				}
+			} else if (isa<ast::Declaration>(statement)) {
+				if (!inferBottomUp(cast<ast::Declaration>(statement))) {
+					return false;
+				}
+			} else {
+				switch (statement.getType()) {
+					case ast::ForLoopNode:
+						if (!inferBottomUp(cast<ast::ForLoop>(statement))) {
+							return false;
+						}
+						break;
+					default:
+						static_assert(
+								ast::STATEMENTS_END - ast::STATEMENTS_BEGIN -
+										(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN) -
+										(ast::DECLARATIONS_END - ast::DECLARATIONS_BEGIN) == 1,
+								"Not all statements covered in TypeInference.");
+						return false;
+				}
+			}
+
+			usedIdentifiersWithIncompleteTypes = oldUsedIdentifiersWithIncompleteTypes;
+			return true;
+		}
+
+		bool inferTopDown(Statement& statement, const LangType& type) {
+			if (isa<ast::Expression>(statement)) {
+				return inferTopDown(cast<ast::Expression>(statement), type);
 			}
 			if (isa<ast::Declaration>(statement)) {
-				return inferTypesBottomUp(cast<ast::Declaration>(statement));
+				return inferTopDown(cast<ast::Declaration>(statement), type);
 			}
 			switch (statement.getType()) {
 				case ast::ForLoopNode:
-					return inferTypesBottomUp(cast<ast::ForLoop>(statement));
+					return false;
+					//return inferTopDown(cast<ast::ForLoop>(statement), type);
 				default:
 					static_assert(
 							ast::STATEMENTS_END - ast::STATEMENTS_BEGIN -
@@ -352,70 +466,46 @@ namespace {
 			}
 		}
 
-		bool inferTypesTopBottom(Statement& statement) {
-			if (isa<ast::Expression>(statement)) {
-				return inferTypesTopBottom(cast<ast::Expression>(statement));
-			}
-			if (isa<ast::Declaration>(statement)) {
-				return inferTypesTopBottom(cast<ast::Declaration>(statement));
-			}
-			switch (statement.getType()) {
-				case ast::ForLoopNode:
-					return inferTypesTopBottom(cast<ast::ForLoop>(statement));
-				default:
-					static_assert(
-							ast::STATEMENTS_END - ast::STATEMENTS_BEGIN -
-									(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN) -
-									(ast::DECLARATIONS_END - ast::DECLARATIONS_BEGIN) == 1,
-							"Not all statements covered in TypeInference.");
-					return false;
-			}
-		}
+		bool inferBottomUp(StatementList& block) {
+			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> blockVariableSourceScope(variableSourceTable);
+			auto oldDeclarationScope = declarationsInScope;
+			declarationsInScope = std::make_shared<DeclarationVector>();
 
-		bool inferTypesBottomUp(StatementList& block) {
-			llvm::ScopedHashTableScope<llvm::StringRef, LangType> blockScope(symbolTable);
 			for (auto& statement : block) {
-				if (!inferTypesBottomUp(*statement)) {
+				if (!inferBottomUp(*statement)) {
 					return false;
 				}
 			}
 
-			auto identifiersWithArbitraryType = identifiersWithUnknownTypes;
-			for (auto& declaration : identifiersWithArbitraryType) {
-				if (!inferTypesTopDown(*declaration.second, EMPTY_TYPE)) {
-					return false;
+			for (auto declaration : *declarationsInScope) {
+				auto& initExpressionType = declaration->getExpression()->getEmittingLangType();
+				if (initExpressionType.incomplete()) {
+					auto newInitExpressionType = inferDefaults(initExpressionType);
+					if (!inferTopDown(*declaration, newInitExpressionType)) {
+						return false;
+					}
 				}
 			}
 
-			/*for (auto& statement : block) {
-				if (!inferTypesBottomUp(*statement)) {
-					return false;
-				}
-			}*/
+			declarationsInScope = oldDeclarationScope;
 
 			return true;
 		}
 
-		LangType mergeTypes(const LangType& type1, const LangType& type2) {
-			if (type1.empty()) {
-				return type2;
+		static LangType inferDefaults(const LangType& type) {
+			auto typeWithDefaults = type;
+			if (type.baseType == integer) {
+				typeWithDefaults.baseType = u64;
+			} else if (type.baseType == floatingPoint) {
+				typeWithDefaults.baseType = f64;
 			}
-			if (type2.empty()) {
-				return type1;
-			}
-			LangType merged{type1.emptyBaseType() ? type2.baseType : type1.baseType, type1.shape};
-			for (size_t i = 0, length = merged.shape.size(); i < length; ++i) {
-				if (merged.shape[i] <= 0) {
-					merged.shape[i] = type2.shape[i];
-				}
-			}
-			return merged;
+			return typeWithDefaults;
 		}
 	};
 }
 
 namespace tvl {
 	bool inferTypes(Module& moduleAST) {
-		return TypeInference().inferTypesBottomUp(moduleAST);
+		return TypeInference().inferBottomUp(moduleAST);
 	}
 }

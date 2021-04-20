@@ -8,6 +8,7 @@ namespace mlir {
 
 	namespace tvl {
 		std::unique_ptr<mlir::Pass> createLowerToSCFPass();
+		std::unique_ptr<mlir::Pass> createLowerToStdPass();
 		std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
 	} // namespace tvl
 } // namespace mlir

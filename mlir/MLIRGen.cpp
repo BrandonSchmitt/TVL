@@ -310,6 +310,14 @@ namespace {
 		/// assumed to be user-defined functions.
 		mlir::Value mlirGen(const ast::FunctionCall& call) {
 			llvm::StringRef callee = call.getCallee();
+
+			if (callee == "vectorBroadcast") {
+				return mlirGenVectorBroadcast(call);
+			}
+			if (callee == "vectorHAdd") {
+				return mlirGenVectorHAdd(call);
+			}
+
 			auto location = loc(call.getLocation());
 
 			// Codegen the operands first.
@@ -337,6 +345,37 @@ namespace {
 			}
 			builder.create<PrintOp>(loc(call.getLocation()), arg);
 			return mlir::success();
+		}
+
+		mlir::Value mlirGenVectorBroadcast(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+			auto value = mlirGen(*call.getArguments().front());
+			if (!value) {
+				return nullptr;
+			}
+
+			auto repetitions = dyn_cast<ast::Integer>(call.getArguments().back().get());
+			if (repetitions == nullptr) {
+				return nullptr;
+			}
+
+			return builder.create<VectorBroadcastOp>(loc(call.getLocation()),
+					mlir::VectorType::get(repetitions->getValue(), value.getType()), value);
+		}
+
+		mlir::Value mlirGenVectorHAdd(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 1) {
+				return nullptr;
+			}
+
+			auto vector = mlirGen(*call.getArguments().front());
+			if (!vector) {
+				return nullptr;
+			}
+
+			return builder.create<VectorHAddOp>(loc(call.getLocation()), builder.getI64Type(), vector);
 		}
 
 		/// This is a reference to a variable in an expression. The variable is expected to have been declared and so

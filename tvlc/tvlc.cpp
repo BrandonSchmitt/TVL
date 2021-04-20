@@ -49,7 +49,7 @@ static cl::opt<enum InputType> inputType("x", cl::init(TVL), cl::desc("Decided t
 
 namespace {
 	enum Action {
-		None, DumpAST, DumpMLIR, DumpMLIRSCF, DumpMLIRLLVM, DumpLLVMIR, RunJIT
+		None, DumpAST, DumpMLIR, DumpMLIRSCF, DumpMLIRSTD, DumpMLIRLLVM, DumpLLVMIR, RunJIT
 	};
 }
 
@@ -57,6 +57,7 @@ static cl::opt<enum Action> emitAction("emit", cl::desc("Select the kind of outp
 		cl::values(clEnumValN(DumpAST, "ast", "output the AST dump")),
 		cl::values(clEnumValN(DumpMLIR, "mlir", "output the MLIR dump")),
 		cl::values(clEnumValN(DumpMLIRSCF, "mlir-scf", "output the MLIR dump after scf lowering")),
+		cl::values(clEnumValN(DumpMLIRSTD, "mlir-std", "output the MLIR dump after std lowering")),
 		cl::values(clEnumValN(DumpMLIRLLVM, "mlir-llvm", "output the MLIR dump after llvm lowering")),
 		cl::values(clEnumValN(DumpLLVMIR, "llvm", "output the LLVM IR dump")),
 		cl::values(clEnumValN(RunJIT, "jit", "JIT the code and run it by invoking the main function")));
@@ -122,11 +123,16 @@ int loadAndProcessMLIR(mlir::MLIRContext& context, mlir::OwningModuleRef& module
 
 	// Check to see what granularity of MLIR we are compiling to.
 	bool isLoweringToSCF = emitAction >= Action::DumpMLIRSCF;
+	bool isLoweringToStd = emitAction >= Action::DumpMLIRSTD;
 	bool isLoweringToLLVM = emitAction >= Action::DumpMLIRLLVM;
 
 	if (isLoweringToSCF) {
 		//mlir::OpPassManager& optPM = pm.nest<mlir::tvl::ForOp>();
 		pm.addPass(mlir::tvl::createLowerToSCFPass());
+	}
+
+	if (isLoweringToStd) {
+		pm.addPass(mlir::tvl::createLowerToStdPass());
 	}
 
 	if (isLoweringToLLVM) {

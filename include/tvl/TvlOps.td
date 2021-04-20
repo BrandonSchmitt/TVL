@@ -216,6 +216,43 @@ def StoreOp : TvlOp<"store", [
 
 def SubOp : TvlBinaryOp<"sub"> {}
 
+def VectorBroadcastOp : TvlOp<"vector_broadcast", [NoSideEffect]> {
+	let summary = "Broadcast a value to a vector";
+	let description = [{
+		```mlir
+		%0 = tvl.constant 1 : i64
+		%1 = tvl.vector_broadcast %0 : vector<4xi64>
+		```
+	}];
+
+	let arguments = (ins AnyType:$source);
+	let results = (outs AnyVector:$vector);
+
+	let extraClassDeclaration = [{
+		Type sourceType() { return source().getType(); }
+		VectorType vectorType() { return vector().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$source attr-dict `:` type($source) `to` type($vector)";
+}
+
+def VectorHAddOp : TvlOp<"vector_hadd", [
+		NoSideEffect,
+		PredOpTrait<"source operand and result have same element type", TCresVTEtIsSameAsOpBase<0, 0>>
+		]> {
+	let summary = "\"Horizontally\" adds the elements of a vector into a scalar";
+
+	let arguments = (ins AnyVector:$vector);
+	let results = (outs AnyType:$result);
+
+	let extraClassDeclaration = [{
+		Type resultType() { return result().getType(); }
+		VectorType vectorType() { return vector().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$vector attr-dict `:` type($vector) `to` type($result)";
+}
+
 def YieldOp : TvlOp<"yield", [NoSideEffect, /*ReturnLike,*/ Terminator, ParentOneOf<["ForOp"]>]> {
 	let summary = "Loop yield and terminator";
 	let description = "";

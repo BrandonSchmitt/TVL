@@ -105,9 +105,8 @@
 %start module;
 
 argument-list:
-	%empty                      	{ $$ = vector<unique_ptr<Expression>>(); } |
 	expression                  	{ $$ = vector<unique_ptr<Expression>>(); $$.push_back($1); } |
-	expression "," argument-list	{ $$ = $3; $$.push_back($1); } ;
+	argument-list "," expression	{ $$ = $1; $$.push_back($3); } ;
 
 array-elements:
     expression { $$ = vector<unique_ptr<Expression>>(); $$.push_back($1); } |

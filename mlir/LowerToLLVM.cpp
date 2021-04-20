@@ -2,71 +2,17 @@
 #include "tvl/TvlOps.h"
 #include "tvl/Passes.h"
 
-#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 
 namespace {
-	template<typename BinaryOperator, typename BinaryLoweredOperation>
-	class BinaryOpLowering : public ConversionPattern {
-	public:
-		explicit BinaryOpLowering(MLIRContext* context)
-				: ConversionPattern{BinaryOperator::getOperationName(), 1, context} {}
-
-		LogicalResult
-		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			rewriter.replaceOpWithNewOp<BinaryLoweredOperation>(op, operands);
-			return success();
-		}
-	};
-
-	using AddOpLowering = BinaryOpLowering<tvl::AddOp, AddIOp>;
-	using SubOpLowering = BinaryOpLowering<tvl::SubOp, SubIOp>;
-	using MulOpLowering = BinaryOpLowering<tvl::MulOp, MulIOp>;
-	using DivOpLowering = BinaryOpLowering<tvl::DivOp, UnsignedDivIOp>;
-	using RemOpLowering = BinaryOpLowering<tvl::RemOp, UnsignedRemIOp>;
-
-	class ConstantOpLowering : public ConversionPattern {
-	public:
-		explicit ConstantOpLowering(MLIRContext* context)
-				: ConversionPattern(tvl::ConstantOp::getOperationName(), 1, context) {}
-
-		LogicalResult
-		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			auto constantOp = cast<tvl::ConstantOp>(op);
-			rewriter.replaceOpWithNewOp<ConstantOp>(op, constantOp.value());
-			return success();
-		}
-	};
-
-	class LoadOpLowering : public ConversionPattern {
-	public:
-		explicit LoadOpLowering(MLIRContext* context)
-				: ConversionPattern{tvl::LoadOp::getOperationName(), 1, context} {}
-
-		LogicalResult
-		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			auto loadOp = cast<tvl::LoadOp>(op);
-			auto location = loadOp.getLoc();
-			auto memRef = loadOp.memRef();
-			auto index = loadOp.index();
-
-			Value dim = rewriter.create<memref::DimOp>(location, memRef, 0);
-			auto pred = rewriter.create<CmpIOp>(location, CmpIPredicate::ult, index, dim);
-			rewriter.create<AssertOp>(location, pred, rewriter.getStringAttr("Out of Bounds"));
-
-			rewriter.replaceOpWithNewOp<memref::LoadOp>(op, memRef, index);
-			return success();
-		}
-	};
-
 	class PrintOpLowering : public ConversionPattern {
 	public:
 		explicit PrintOpLowering(MLIRContext* context)
@@ -140,54 +86,9 @@ namespace {
 		}
 	};
 
-	class ReturnOpLowering : public ConversionPattern {
-	public:
-		explicit ReturnOpLowering(MLIRContext* context)
-				: ConversionPattern(tvl::ReturnOp::getOperationName(), 1, context) {}
-
-		LogicalResult
-		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			auto returnOp = cast<tvl::ReturnOp>(op);
-			if (returnOp.hasOperand()) {
-				return failure();
-			}
-
-			rewriter.replaceOpWithNewOp<ReturnOp>(op);
-			return success();
-		}
-	};
-
-	class StoreOpLowering : public ConversionPattern {
-	public:
-		explicit StoreOpLowering(MLIRContext* context)
-				: ConversionPattern{tvl::StoreOp::getOperationName(), 1, context} {}
-
-		LogicalResult
-		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			auto storeOp = cast<tvl::StoreOp>(op);
-			auto location = storeOp.getLoc();
-			auto value = storeOp.value();
-			auto memRef = storeOp.memRef();
-			auto index = storeOp.index();
-
-			Value dim = rewriter.create<memref::DimOp>(location, memRef, 0);
-			auto pred = rewriter.create<CmpIOp>(location, CmpIPredicate::ult, index, dim);
-			rewriter.create<AssertOp>(location, pred, rewriter.getStringAttr("Out of Bounds"));
-
-			rewriter.replaceOpWithNewOp<memref::StoreOp>(op, value, memRef, index);
-			return success();
-		}
-	};
-} // end anonymous namespace
-
-//===----------------------------------------------------------------------===//
-// TvlToLLVMLoweringPass
-//===----------------------------------------------------------------------===//
-
-namespace {
 	struct TvlToLLVMLoweringPass : public PassWrapper<TvlToLLVMLoweringPass, OperationPass<ModuleOp>> {
 		void getDependentDialects(DialectRegistry& registry) const final {
-			registry.insert<LLVM::LLVMDialect, StandardOpsDialect, scf::SCFDialect>();
+			registry.insert<LLVM::LLVMDialect>();
 		}
 
 		void runOnOperation() final;
@@ -195,8 +96,6 @@ namespace {
 } // end anonymous namespace
 
 void TvlToLLVMLoweringPass::runOnOperation() {
-	// The first thing to define is the conversion target. This will define the final target for this lowering. For this
-	// lowering, we are only targeting the LLVM dialect.
 	LLVMConversionTarget target(getContext());
 	target.addLegalOp<ModuleOp/*, ModuleTerminatorOp*/>();
 
@@ -206,22 +105,13 @@ void TvlToLLVMLoweringPass::runOnOperation() {
 	// involving loop region arguments.
 	LLVMTypeConverter typeConverter(&getContext());
 
-	// Now that the conversion target has been defined, we need to provide the patterns used for lowering. At this point
-	// of the compilation process, we have a combination of `tvl`, `affine`, and `std` operations. Luckily, there are
-	// already exists a set of patterns to transform `affine` and `std` dialects. These patterns lowering in multiple
-	// stages, relying on transitive lowerings. Transitive lowering, or A->B->C lowering, is when multiple patterns must
-	// be applied to fully transform an illegal operation into a set of legal ones.
 	RewritePatternSet patterns(&getContext());
-	//populateAffineToStdConversionPatterns(patterns, &getContext());
-	populateLoopToStdConversionPatterns(patterns);
+	populateVectorToLLVMConversionPatterns(typeConverter, patterns);
 	populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
-	patterns.insert<AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, PrintOpLowering,
-			RemOpLowering, ReturnOpLowering, StoreOpLowering, SubOpLowering>(&getContext());
+	patterns.insert<PrintOpLowering>(&getContext());
 
-	// We want to completely lower to LLVM, so we use a `FullConversion`. This ensures that only legal operations will
-	// remain after the conversion.
 	auto module = getOperation();
 	if (failed(applyFullConversion(module, target, std::move(patterns)))) {
 		signalPassFailure();

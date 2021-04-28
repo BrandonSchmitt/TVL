@@ -131,6 +131,7 @@ expression:
     expression "[" expression "]" { $$ = make_unique<ArrayIndexing>($1, $3, @$); } %prec ARRAY_INDEXING |	// array-indexing-expression
     expression "=" expression { $$ = make_unique<Assignment>($1, $3, @$); } |	// assignment-expression
 	"identifier" "(" argument-list ")" %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, $3, @$); } |  // call-expression
+	"identifier" "(" ")" %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, vector<unique_ptr<Expression>>(), @$); } |  // call-expression
     "identifier" { $$ = make_unique<Identifier>($1, @$); } |
     expression ".." expression { $$ = make_unique<Range>($1, $3, @$); } |   // range-expression
     "integer" { $$ = make_unique<Integer>($1, @$); } |

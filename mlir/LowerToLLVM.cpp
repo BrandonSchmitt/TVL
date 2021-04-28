@@ -86,6 +86,91 @@ namespace {
 		}
 	};
 
+	class RandOpLowering : public ConversionPattern {
+	public:
+		explicit RandOpLowering(MLIRContext* context)
+				: ConversionPattern(tvl::RandOp::getOperationName(), 1, context) {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto loc = op->getLoc();
+
+			ModuleOp parentModule = op->getParentOfType<ModuleOp>();
+
+			// Get a symbol reference to the printf function, inserting it if necessary.
+			auto randRef = getOrInsertRand(rewriter, parentModule);
+
+			//auto randOp = cast<tvl::RandOp>(op);
+			auto high = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
+			auto highCast = rewriter.create<ZeroExtendIOp>(loc, high, rewriter.getI64Type());
+			auto low = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
+			auto lowCast = rewriter.create<ZeroExtendIOp>(loc, low, rewriter.getI64Type());
+			auto shiftValue = rewriter.create<ConstantOp>(loc, rewriter.getI64IntegerAttr(32));
+			auto shiftedHigh = rewriter.create<ShiftLeftOp>(loc, highCast, shiftValue)->getOpResult(0);
+			rewriter.replaceOpWithNewOp<OrOp>(op, shiftedHigh, lowCast);
+
+			return success();
+		}
+
+	private:
+		/// Return a symbol reference to the printf function, inserting it into the module if necessary.
+		static FlatSymbolRefAttr getOrInsertRand(PatternRewriter& rewriter, ModuleOp module) {
+			auto* context = module.getContext();
+			if (module.lookupSymbol<LLVM::LLVMFuncOp>("rand")) {
+				return SymbolRefAttr::get(context, "rand");
+			}
+
+			auto llvmI32Ty = IntegerType::get(context, 32);
+			auto llvmFnType = LLVM::LLVMFunctionType::get(llvmI32Ty, {});
+
+			// Insert the rand function into the body of the parent module.
+			PatternRewriter::InsertionGuard insertGuard(rewriter);
+			rewriter.setInsertionPointToStart(module.getBody());
+			rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "rand", llvmFnType);
+			return SymbolRefAttr::get(context, "rand");
+		}
+	};
+
+	class SRandOpLowering : public ConversionPattern {
+	public:
+		explicit SRandOpLowering(MLIRContext* context)
+				: ConversionPattern(tvl::SRandOp::getOperationName(), 1, context) {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto loc = op->getLoc();
+
+			ModuleOp parentModule = op->getParentOfType<ModuleOp>();
+
+			auto srandRef = getOrInsertSRand(rewriter, parentModule);
+
+			auto srandOp = cast<tvl::SRandOp>(op);
+			rewriter.create<CallOp>(loc, srandRef, LLVM::LLVMVoidType::get(parentModule.getContext()), srandOp.seed());
+			rewriter.eraseOp(op);
+
+			return success();
+		}
+
+	private:
+		/// Return a symbol reference to the printf function, inserting it into the module if necessary.
+		static FlatSymbolRefAttr getOrInsertSRand(PatternRewriter& rewriter, ModuleOp module) {
+			auto* context = module.getContext();
+			if (module.lookupSymbol<LLVM::LLVMFuncOp>("srand")) {
+				return SymbolRefAttr::get(context, "srand");
+			}
+
+			auto llvmVoidTy = LLVM::LLVMVoidType::get(context);
+			auto llvmI32Ty = IntegerType::get(context, 32);
+			auto llvmFnType = LLVM::LLVMFunctionType::get(llvmVoidTy, llvmI32Ty);
+
+			// Insert the rand function into the body of the parent module.
+			PatternRewriter::InsertionGuard insertGuard(rewriter);
+			rewriter.setInsertionPointToStart(module.getBody());
+			rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "srand", llvmFnType);
+			return SymbolRefAttr::get(context, "srand");
+		}
+	};
+
 	struct TvlToLLVMLoweringPass : public PassWrapper<TvlToLLVMLoweringPass, OperationPass<ModuleOp>> {
 		void getDependentDialects(DialectRegistry& registry) const final {
 			registry.insert<LLVM::LLVMDialect>();
@@ -110,7 +195,7 @@ void TvlToLLVMLoweringPass::runOnOperation() {
 	populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
-	patterns.insert<PrintOpLowering>(&getContext());
+	patterns.insert<PrintOpLowering, RandOpLowering, SRandOpLowering>(&getContext());
 
 	auto module = getOperation();
 	if (failed(applyFullConversion(module, target, std::move(patterns)))) {

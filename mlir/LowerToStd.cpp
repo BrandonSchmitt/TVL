@@ -133,6 +133,22 @@ namespace {
 			return success();
 		}
 	};
+
+	class VectorLoadOpLowering : public ConversionPattern {
+	public:
+		explicit VectorLoadOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::VectorLoadOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto vectorLoadOp = cast<tvl::VectorLoadOp>(op);
+
+			rewriter.replaceOpWithNewOp<vector::LoadOp>(op, vectorLoadOp.vectorType(), vectorLoadOp.base(), vectorLoadOp.indices());
+			//rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, vectorHAddOp.resultType(), "add",
+			//		vectorHAddOp.vector(), ValueRange({}));
+			return success();
+		}
+	};
 } // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
@@ -154,7 +170,7 @@ void TvlToStdLoweringPass::runOnOperation() {
 	// lowering, we are only targeting the LLVM dialect.
 	ConversionTarget target(getContext());
 	target.addLegalDialect<memref::MemRefDialect, StandardOpsDialect, vector::VectorDialect>();
-	target.addLegalOp<ModuleOp, FuncOp, tvl::PrintOp/*, ModuleTerminatorOp*/>();
+	target.addLegalOp<ModuleOp, FuncOp, tvl::PrintOp, tvl::RandOp, tvl::SRandOp/*, ModuleTerminatorOp*/>();
 
 	// Now that the conversion target has been defined, we need to provide the patterns used for lowering. At this point
 	// of the compilation process, we have a combination of `tvl`, `affine`, and `std` operations. Luckily, there are
@@ -167,8 +183,8 @@ void TvlToStdLoweringPass::runOnOperation() {
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
 	patterns.insert<AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, RemOpLowering,
-			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorHAddOpLowering>(
-			&getContext());
+			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorHAddOpLowering,
+			VectorLoadOpLowering>(&getContext());
 
 	// We want to completely lower to LLVM, so we use a `FullConversion`. This ensures that only legal operations will
 	// remain after the conversion.

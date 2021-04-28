@@ -150,6 +150,14 @@ def PrintOp : TvlOp<"print"> {
 	let assemblyFormat = "$input attr-dict `:` type($input)";
 }
 
+def RandOp : TvlOp<"rand"> {
+	let summary = "Generates a random value";
+
+	let results = (outs I64:$value);
+
+	let assemblyFormat = "attr-dict `:` type($value)";
+}
+
 def RemOp : TvlBinaryOp<"rem"> {}
 
 def ReturnOp : TvlOp<"return", [NoSideEffect, HasParent<"FuncOp">, Terminator]> {
@@ -185,6 +193,14 @@ def ReturnOp : TvlOp<"return", [NoSideEffect, HasParent<"FuncOp">, Terminator]> 
 
 	// Invoke a static verify method to verify this return operation.
 	//let verifier = [{ return ::verify(*this); }];
+}
+
+def SRandOp : TvlOp<"srand"> {
+	let summary = "Seeds the random number generator";
+
+	let arguments = (ins I32:$seed);
+
+	let assemblyFormat = "$seed attr-dict `:` type($seed)";
 }
 
 def StoreOp : TvlOp<"store", [
@@ -251,6 +267,20 @@ def VectorHAddOp : TvlOp<"vector_hadd", [
 	}];
 
 	let assemblyFormat = "$vector attr-dict `:` type($vector) `to` type($result)";
+}
+
+def VectorLoadOp : TvlOp<"vector_load", [NoSideEffect]> {
+	let summary = "Loads data from memory into a vector";
+
+	let arguments = (ins Arg<AnyMemRef, "the reference to load from", [MemRead]>:$base, Variadic<Index>:$indices);
+	let results = (outs AnyVector:$result);
+
+	let extraClassDeclaration = [{
+		MemRefType memRefType() { return base().getType().cast<MemRefType>(); }
+		VectorType vectorType() { return result().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$base `[` $indices `]` attr-dict `:` type($base) `,` type($result)";
 }
 
 def YieldOp : TvlOp<"yield", [NoSideEffect, /*ReturnLike,*/ Terminator, ParentOneOf<["ForOp"]>]> {

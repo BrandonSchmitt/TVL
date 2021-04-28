@@ -20,8 +20,10 @@ namespace tvl {
 		f32,
 		f64,
 		array,
+		void_,
 		vec,
 		range,
+		callable,
 
 		NUMBERS_BEGIN = number,
 		NUMBERS_END = array,
@@ -36,6 +38,8 @@ namespace tvl {
 		explicit LangType(TypeType baseType) : baseType{baseType} {}
 		LangType(TypeType baseType, llvm::SmallVector<int64_t, 2> shape) : baseType{baseType},
 				shape{std::move(shape)} {}
+		LangType(TypeType baseType, llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes) : baseType{baseType},
+				parameterTypes{std::move(parameterTypes)} {}
 		explicit LangType(llvm::StringRef typeIdentifier) {
 			auto pos = typeIdentifier.find('[');
 			auto baseTypeStr = typeIdentifier.substr(0, pos);
@@ -77,58 +81,77 @@ namespace tvl {
 			return baseType == unknown || baseType == number || baseType == integer || baseType == floatingPoint;
 		}
 
-		TypeType baseType;
-		llvm::SmallVector<int64_t, 2> shape;
-
-		friend llvm::raw_ostream& operator<<(llvm::raw_ostream& output, const LangType& type) {
-			switch (type.baseType) {
-				case unknown:
-					output << "unknown";
+		std::string describe() const {
+			std::string result;
+			switch (baseType) {
+				case array:
+					result = "array";
 					break;
-				case number:
-					output << "number";
-					break;
-				case integer:
-					output << "integer";
-					break;
-				case u8:
-					output << "u8";
-					break;
-				case u16:
-					output << "u16";
-					break;
-				case u32:
-					output << "u32";
-					break;
-				case u64:
-					output << "u64";
-					break;
-				case usize:
-					output << "usize";
-					break;
-				case floatingPoint:
-					output << "floatingPoint";
+				case callable:
+					result = "callable";
+					result = parameterTypes[0]->describe() + "(";
+					for (size_t i = 1, len = parameterTypes.size(); i < len; ++i) {
+						result += (i > 1 ? ", " : "") + parameterTypes[i]->describe();
+					}
+					result += ")";
 					break;
 				case f32:
-					output << "f32";
+					result = "f32";
 					break;
 				case f64:
-					output << "f64";
+					result = "f64";
 					break;
-				case array:
-					output << "array";
+				case floatingPoint:
+					result = "floatingPoint";
+					break;
+				case integer:
+					result = "integer";
+					break;
+				case number:
+					result = "number";
+					break;
+				case u8:
+					result = "u8";
+					break;
+				case u16:
+					result = "u16";
+					break;
+				case u32:
+					result = "u32";
+					break;
+				case u64:
+					result = "u64";
+					break;
+				case unknown:
+					result = "unknown";
+					break;
+				case usize:
+					result = "usize";
 					break;
 				case vec:
-					output << "vec";
+					result = "vec";
+					break;
+				case void_:
+					result = "void";
 					break;
 				case range:
-					output << "range";
+					result = "range";
 					break;
 			}
-			for (size_t i = 0, length = type.shape.size(); i < length; ++i) {
-				output << '[' << type.shape[i] << ']';
+
+			for (size_t i = 0, length = shape.size(); i < length; ++i) {
+				result += '[' + std::to_string(shape[i]) + ']';
 			}
-			return output;
+
+			return result;
+		}
+
+		TypeType baseType;
+		llvm::SmallVector<int64_t, 2> shape;
+		llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes;
+
+		friend llvm::raw_ostream& operator<<(llvm::raw_ostream& output, const LangType& type) {
+			return output << type.describe();
 		}
 
 		static bool compatible(const LangType& type1, const LangType& type2) {
@@ -197,126 +220,8 @@ namespace tvl {
 	static const LangType floatType{floatingPoint};
 	static const LangType f32Type{f32};
 	static const LangType f64Type{f64};
+	static const LangType voidType{void_};
 	static const LangType rangeType{range};
-
-	/*struct Type {
-		explicit Type(TypeType type)
-				: type{type} {};
-		virtual ~Type() = default;
-
-		TypeType getType() const { return type; }
-
-	private:
-		const TypeType type;
-	};
-
-	struct NumberType : Type {
-		NumberType() : Type{numberType} {}
-		static bool classof(const Type* type) {
-			return type->getType() >= NUMBERS_BEGIN && type->getType() < NUMBERS_END;
-		}
-
-	protected:
-		NumberType(TypeType type) : Type{type} {}
-	};
-
-	struct IntegerType : NumberType {
-		IntegerType() : NumberType{integerType} {}
-		static bool classof(const Type* type) {
-			return type->getType() >= INTEGERS_BEGIN && type->getType() < INTEGERS_END;
-		}
-
-	protected:
-		IntegerType(TypeType type) : NumberType{type} {}
-	};
-
-	struct U8Type : public IntegerType {
-		U8Type() : IntegerType{u8Type} {}
-		static bool classof(const Type* node) { return node->getType() == u8Type; }
-	};
-
-	struct U16Type : public IntegerType {
-		U16Type() : IntegerType{u16Type} {}
-		static bool classof(const Type* node) { return node->getType() == u16Type; }
-	};
-
-	struct U32Type : public IntegerType {
-		U32Type() : IntegerType{u32Type} {}
-		static bool classof(const Type* node) { return node->getType() == u32Type; }
-	};
-
-	struct U64Type : public IntegerType {
-		U64Type() : IntegerType{u64Type} {}
-		static bool classof(const Type* node) { return node->getType() == u64Type; }
-	};
-
-	struct IndexType : public IntegerType {
-		IndexType() : IntegerType{usizeType} {}
-		static bool classof(const Type* node) { return node->getType() == usizeType; }
-	};
-
-	struct FloatType : NumberType {
-		FloatType() : NumberType{floatType} {}
-		static bool classof(const Type* type) {
-			return type->getType() >= FLOATS_BEGIN && type->getType() < FLOATS_END;
-		}
-
-	protected:
-		FloatType(TypeType type) : NumberType{type} {}
-	};
-
-	struct F32Type : FloatType {
-		F32Type() : FloatType{f32Type} {}
-		static bool classof(const Type* node) { return node->getType() == f32Type; }
-	};
-
-	struct F64Type : FloatType {
-		F64Type() : FloatType{f64Type} {}
-		static bool classof(const Type* node) { return node->getType() == f64Type; }
-	};
-
-	struct ArrayType : public Type {
-		ArrayType(const Type& elementType) : Type{arrayType}, elementType(elementType) {}
-		static bool classof(const Type* node) { return node->getType() == arrayType; }
-
-		Type elementType;
-		size_t shape;
-	};
-
-	struct VectorType : public Type {
-		VectorType() : Type{vectorType} {}
-		static bool classof(const Type* node) { return node->getType() == vectorType; }
-
-		size_t registerLength;
-		NumberType baseType;
-	};
-
-	static const NumberType number;
-	static const IntegerType integer;
-	static const U8Type u8;
-	static const U16Type u16;
-	static const U32Type u32;
-	static const U64Type u64;
-	static const IndexType index;
-	static const FloatType floatingPoint;
-	static const F32Type f32;
-	static const F64Type f64;
-
-	bool compatible(const Type& type1, const Type& type2) {
-		// Make sure that the specific types are listed first to match their case before the one of the generalized types.
-		bool result = llvm::TypeSwitch<const Type*, bool>(&type1)
-				.Case<U64Type, U32Type, U16Type, U8Type, IndexType, F64Type, F32Type, IntegerType, FloatType,
-						NumberType, ArrayType, VectorType>([&](auto* type1) { return type1->classof(&type2); });
-		if (result) {
-			return true;
-		}
-		result = llvm::TypeSwitch<const Type*, bool>(&type2)
-				.Case<U64Type, U32Type, U16Type, U8Type, IndexType, F64Type, F32Type, IntegerType, FloatType,
-						NumberType, ArrayType, VectorType>([&](auto* type2) { return type2->classof(&type1); });
-		return result;
-
-		static_assert(NUM_TYPES == 12, "Not all types covered in compatible check.");
-	}*/
 }
 
 #endif //TVL_DIALECT_TYPES_H

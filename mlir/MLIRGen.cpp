@@ -317,6 +317,12 @@ namespace {
 			if (callee == "vectorHAdd") {
 				return mlirGenVectorHAdd(call);
 			}
+			if (callee == "vectorLoad") {
+				return mlirGenVectorLoad(call);
+			}
+			if (callee == "rand_u64") {
+				return mlirGenRand_u64(call);
+			}
 
 			auto location = loc(call.getLocation());
 
@@ -345,6 +351,22 @@ namespace {
 			}
 			builder.create<PrintOp>(loc(call.getLocation()), arg);
 			return mlir::success();
+		}
+
+		mlir::LogicalResult mlirGenSrand(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 1) {
+				return mlir::failure();
+			}
+			auto arg = mlirGen(*call.getArguments().front());
+			if (!arg) {
+				return mlir::failure();
+			}
+			builder.create<SRandOp>(loc(call.getLocation()), arg);
+			return mlir::success();
+		}
+
+		mlir::Value mlirGenRand_u64(const ast::FunctionCall& call) {
+			return builder.create<RandOp>(loc(call.getLocation()), builder.getI64Type());
 		}
 
 		mlir::Value mlirGenVectorBroadcast(const ast::FunctionCall& call) {
@@ -376,6 +398,25 @@ namespace {
 			}
 
 			return builder.create<VectorHAddOp>(loc(call.getLocation()), builder.getI64Type(), vector);
+		}
+
+		mlir::Value mlirGenVectorLoad(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+			auto memref = mlirGen(*call.getArguments().front());
+			if (!memref) {
+				return nullptr;
+			}
+
+			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
+			if (length == nullptr) {
+				return nullptr;
+			}
+
+			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
+			return builder.create<VectorLoadOp>(loc(call.getLocation()),
+					mlir::VectorType::get(length->getValue(), memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
 		}
 
 		/// This is a reference to a variable in an expression. The variable is expected to have been declared and so
@@ -452,6 +493,12 @@ namespace {
 				if (auto* func = dyn_cast<ast::FunctionCall>(stmt.get())) {
 					if (func->getCallee() == "print") {
 						if (mlir::failed(mlirGenPrint(*func))) {
+							return mlir::failure();
+						}
+						continue;
+					}
+					if (func->getCallee() == "srand") {
+						if (mlir::failed(mlirGenSrand(*func))) {
 							return mlir::failure();
 						}
 						continue;

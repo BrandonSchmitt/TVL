@@ -4,8 +4,10 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/ScopedHashTable.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace tvl;
 using namespace tvl::ast;
@@ -17,11 +19,48 @@ using ExpressionVector = llvm::SmallVector<Expression*, 4>;
 using VariableSourceVector = llvm::SmallVector<Statement*, 4>;
 
 namespace {
+	class StdLibFunction : public Node {
+	public:
+		explicit StdLibFunction(llvm::StringRef name, std::vector<LangType> parameterTypes)
+				: Node{FunctionNode, Location()}, name{name}, parameterTypes{std::move(parameterTypes)} {
+			fqn = name.str();
+			for (auto& parameterType : parameterTypes) {
+				fqn += "_" + parameterType.describe();
+			}
+		}
+		llvm::StringRef getFQN() const { return fqn; }
+		llvm::StringRef getName() const { return name; }
+		LangType const& returnType() const { return parameterTypes[0]; }
+		size_t numArguments() const { return parameterTypes.size() - 1; }
+		LangType const& argument(size_t i) const { return parameterTypes.at(i + 1); }
+
+	private:
+		llvm::StringRef name;
+		std::string fqn;
+		std::vector<LangType> parameterTypes;
+	};
+
+
 	class TypeInference {
 	public:
 		bool inferBottomUp(Module& module) {
 			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> moduleVariableSourceScope(variableSourceTable);
 			declarationsInScope = std::make_shared<DeclarationVector>();
+
+			// Make c std functions known
+			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
+			auto print_usize = StdLibFunction("print", {voidType, usizeType});
+			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
+			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
+			auto vectorLoad = StdLibFunction("vectorLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
+			auto vectorHAdd = StdLibFunction("vectorHAdd", {u64Type, LangType{vec}});
+
+			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
+			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>({&print_u64, &print_usize})});
+			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
+			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
+			stdLibFunctions.insert({"vectorLoad", llvm::SmallVector<StdLibFunction*, 4>({&vectorLoad})});
+			stdLibFunctions.insert({"vectorHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vectorHAdd})});
 
 			for (auto& f : module.getFunctions()) {
 				if (!inferBottomUp(*f)) {
@@ -38,6 +77,7 @@ namespace {
 		llvm::SmallMapVector<Statement*, ExpressionVector, 4> variablesToDependingExpressions;
 		std::shared_ptr<VariableSourceVector> usedIdentifiersWithIncompleteTypes;
 		std::shared_ptr<DeclarationVector> declarationsInScope;
+		llvm::SmallMapVector<llvm::StringRef, llvm::SmallVector<StdLibFunction*, 4>, 4> stdLibFunctions;
 
 		bool inferBottomUp(Array& array) {
 			LangType elementType{unknown};
@@ -310,13 +350,56 @@ namespace {
 		}
 
 		bool inferBottomUp(FunctionCall& functionCall) {
-			functionCall.setEmittingLangType(LangType{"void"});    // Only support void return type right now
+			auto callee = functionCall.getCallee();
+			if (stdLibFunctions.count(callee) == 0) {
+				llvm::errs() << "Unknown function " << callee << "\n";
+				return false;
+			}
+
+			auto functionOverloads = stdLibFunctions.lookup(callee);
+			auto filteredFunctions = std::vector<StdLibFunction*>(functionOverloads.size());
+			auto filteredFunctionsEnd = std::remove_copy_if(functionOverloads.begin(), functionOverloads.end(),
+					filteredFunctions.begin(),
+					[&](auto f) { return f->numArguments() != functionCall.getArguments().size(); });
+
+			if (filteredFunctions.begin() == filteredFunctionsEnd) {
+				llvm::errs() << "No function overload for " << callee << " takes " << functionCall.getArguments().size()
+						<< " arguments";
+				return false;
+			}
+
+			size_t argNum = 0;
 			for (auto& arg : functionCall.getArguments()) {
 				if (!inferBottomUp(*arg)) {
 					return false;
 				}
 
-				if (arg->getEmittingLangType().incomplete()) {
+				filteredFunctionsEnd = std::remove_if(filteredFunctions.begin(), filteredFunctionsEnd,
+						[&](auto f) {
+							return !LangType::compatible(f->argument(argNum), arg->getEmittingLangType());
+						});
+				if (filteredFunctions.begin() == filteredFunctionsEnd) {
+					llvm::errs() << "No valid function overload found.\nArguments of requested function call:";
+					for (auto& arg : functionCall.getArguments()) {
+						llvm::errs() << " " << arg->getEmittingLangType();
+					}
+					llvm::errs() << "\nPossible functions:\n";
+					for (auto& function : functionOverloads) {
+						llvm::errs() << "- " << function->getName() << "(";
+						for (size_t i = 0, len = function->numArguments(); i < len; ++i) {
+							llvm::errs() << (i > 0 ? ", " : "") << function->argument(i);
+						}
+						llvm::errs() << ")";
+						if (function->returnType() != voidType) {
+							llvm::errs() << " -> " << function->returnType();
+						}
+						llvm::errs() << "\n";
+					}
+					return false;
+				}
+				++argNum;
+
+				/*if (arg->getEmittingLangType().incomplete()) {
 					if (usedIdentifiersWithIncompleteTypes->empty()) {
 						if (!inferTopDown(*arg, inferDefaults(arg->getEmittingLangType()))) {
 							return false;
@@ -329,6 +412,26 @@ namespace {
 							variablesToDependingExpressions[declaration].push_back(arg.get());
 						}
 					}
+				}*/
+			}
+
+			size_t num = 0;
+			for (auto it = filteredFunctions.begin(); it != filteredFunctionsEnd; ++it) {
+				++num;
+			}
+			if (num > 1 && usedIdentifiersWithIncompleteTypes->empty()) {
+				num = 1;	// used first prototype as default
+			}
+			if (num == 1) {
+				auto function = **filteredFunctions.begin();
+				functionCall.setEmittingLangType(function.returnType());    // Only support void return type right now
+
+				auto argIt = functionCall.getArguments().begin();
+				for (size_t i = 0, len = function.numArguments(); i < len; ++i) {
+					if (!inferTopDown(**argIt, function.argument(i))) {
+						return false;
+					}
+					++argIt;
 				}
 			}
 			return true;
@@ -338,8 +441,7 @@ namespace {
 			Statement* identifierSource = nullptr;
 			if (identifierSources.count(&identifier) > 0) {
 				identifierSource = identifierSources.lookup(&identifier);
-			}
-			else {
+			} else {
 				auto& name = identifier.getName();
 				if (variableSourceTable.count(name) != 1) {
 					llvm::errs() /*<< identifier.getLocation()*/ << ": unknown identifier " << name << "\n";
@@ -353,11 +455,9 @@ namespace {
 			LangType type;
 			if (auto declaration = llvm::dyn_cast<Declaration>(identifierSource); declaration != nullptr) {
 				type = declaration->getExpression()->getEmittingLangType();
-			}
-			else if(auto forLoop = llvm::dyn_cast<ForLoop>(identifierSource); forLoop != nullptr) {
+			} else if (auto forLoop = llvm::dyn_cast<ForLoop>(identifierSource); forLoop != nullptr) {
 				type = usizeType;
-			}
-			else {
+			} else {
 				llvm::errs() << "Unknown identifier source\n";
 			}
 			identifier.setEmittingLangType(type);

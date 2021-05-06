@@ -52,6 +52,7 @@ namespace {
 			auto print_usize = StdLibFunction("print", {voidType, usizeType});
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
+			auto vectorBroadcast = StdLibFunction("vectorBroadcast", {LangType{vec}, u64Type, usizeType});
 			auto vectorLoad = StdLibFunction("vectorLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
 			auto vectorHAdd = StdLibFunction("vectorHAdd", {u64Type, LangType{vec}});
 
@@ -59,6 +60,7 @@ namespace {
 			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>({&print_u64, &print_usize})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
+			stdLibFunctions.insert({"vectorBroadcast", llvm::SmallVector<StdLibFunction*, 4>({&vectorBroadcast})});
 			stdLibFunctions.insert({"vectorLoad", llvm::SmallVector<StdLibFunction*, 4>({&vectorLoad})});
 			stdLibFunctions.insert({"vectorHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vectorHAdd})});
 

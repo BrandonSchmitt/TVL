@@ -48,21 +48,33 @@ namespace {
 			declarationsInScope = std::make_shared<DeclarationVector>();
 
 			// Make c std functions known
+			// parameters types are in the default ordering with the result type on position 0 and the first parameter
+			// at index 1 and so on.
 			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
 			auto print_usize = StdLibFunction("print", {voidType, usizeType});
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
-			auto vectorBroadcast = StdLibFunction("vectorBroadcast", {LangType{vec}, u64Type, usizeType});
-			auto vectorLoad = StdLibFunction("vectorLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
-			auto vectorHAdd = StdLibFunction("vectorHAdd", {u64Type, LangType{vec}});
+			auto vecAdd = StdLibFunction("vecAdd", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecBroadcast = StdLibFunction("vecBroadcast", {LangType{vec}, u64Type, usizeType});
+			auto vecDiv = StdLibFunction("vecDiv", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecLoad = StdLibFunction("vecLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
+			auto vecHAdd = StdLibFunction("vecHAdd", {u64Type, LangType{vec}});
+			auto vecMul = StdLibFunction("vecMul", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecRem = StdLibFunction("vecRem", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecSub = StdLibFunction("vecSub", {LangType{vec}, LangType{vec}, LangType{vec}});
 
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
 			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>({&print_u64, &print_usize})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
-			stdLibFunctions.insert({"vectorBroadcast", llvm::SmallVector<StdLibFunction*, 4>({&vectorBroadcast})});
-			stdLibFunctions.insert({"vectorLoad", llvm::SmallVector<StdLibFunction*, 4>({&vectorLoad})});
-			stdLibFunctions.insert({"vectorHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vectorHAdd})});
+			stdLibFunctions.insert({"vecAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecAdd})});
+			stdLibFunctions.insert({"vecBroadcast", llvm::SmallVector<StdLibFunction*, 4>({&vecBroadcast})});
+			stdLibFunctions.insert({"vecDiv", llvm::SmallVector<StdLibFunction*, 4>({&vecDiv})});
+			stdLibFunctions.insert({"vecLoad", llvm::SmallVector<StdLibFunction*, 4>({&vecLoad})});
+			stdLibFunctions.insert({"vecHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecHAdd})});
+			stdLibFunctions.insert({"vecMul", llvm::SmallVector<StdLibFunction*, 4>({&vecMul})});
+			stdLibFunctions.insert({"vecRem", llvm::SmallVector<StdLibFunction*, 4>({&vecRem})});
+			stdLibFunctions.insert({"vecSub", llvm::SmallVector<StdLibFunction*, 4>({&vecSub})});
 
 			for (auto& f : module.getFunctions()) {
 				if (!inferBottomUp(*f)) {

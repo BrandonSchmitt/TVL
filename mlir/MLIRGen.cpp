@@ -311,14 +311,29 @@ namespace {
 		mlir::Value mlirGen(const ast::FunctionCall& call) {
 			llvm::StringRef callee = call.getCallee();
 
-			if (callee == "vectorBroadcast") {
+			if (callee == "vecAdd") {
+				return mlirGenVectorBinaryOperator<AddOp>(call);
+			}
+			if (callee == "vecBroadcast") {
 				return mlirGenVectorBroadcast(call);
 			}
-			if (callee == "vectorHAdd") {
+			if (callee == "vecDiv") {
+				return mlirGenVectorBinaryOperator<DivOp>(call);
+			}
+			if (callee == "vecHAdd") {
 				return mlirGenVectorHAdd(call);
 			}
-			if (callee == "vectorLoad") {
+			if (callee == "vecLoad") {
 				return mlirGenVectorLoad(call);
+			}
+			if (callee == "vecMul") {
+				return mlirGenVectorBinaryOperator<MulOp>(call);
+			}
+			if (callee == "vecRem") {
+				return mlirGenVectorBinaryOperator<RemOp>(call);
+			}
+			if (callee == "vecSub") {
+				return mlirGenVectorBinaryOperator<SubOp>(call);
 			}
 			if (callee == "rand_u64") {
 				return mlirGenRand_u64(call);
@@ -339,6 +354,22 @@ namespace {
 			// Otherwise this is a call to a user-defined function. Calls to user-defined functions are mapped to a
 			// custom call that takes the callee name as an attribute.
 			return builder.create<GenericCallOp>(location, callee, operands);
+		}
+
+		template<typename Op>
+		mlir::Value mlirGenVectorBinaryOperator(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+			auto lhs = mlirGen(*call.getArguments().front());
+			if (!lhs) {
+				return nullptr;
+			}
+			auto rhs = mlirGen(*call.getArguments().back());
+			if (!rhs) {
+				return nullptr;
+			}
+			return builder.create<Op>(loc(call.getLocation()), lhs, rhs);
 		}
 
 		mlir::LogicalResult mlirGenPrint(const ast::FunctionCall& call) {

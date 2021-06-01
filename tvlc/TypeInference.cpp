@@ -57,10 +57,12 @@ namespace {
 			auto vecAdd = StdLibFunction("vecAdd", {LangType{vec}, LangType{vec}, LangType{vec}});
 			auto vecBroadcast = StdLibFunction("vecBroadcast", {LangType{vec}, u64Type, usizeType});
 			auto vecDiv = StdLibFunction("vecDiv", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecExtractElement = StdLibFunction("vecExtractElement", {unknownType, LangType{vec}, u64Type});
 			auto vecLoad = StdLibFunction("vecLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
 			auto vecHAdd = StdLibFunction("vecHAdd", {u64Type, LangType{vec}});
 			auto vecMul = StdLibFunction("vecMul", {LangType{vec}, LangType{vec}, LangType{vec}});
 			auto vecRem = StdLibFunction("vecRem", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecSeq = StdLibFunction("vecSeq", {LangType{vec}, u64Type, usizeType});
 			auto vecSub = StdLibFunction("vecSub", {LangType{vec}, LangType{vec}, LangType{vec}});
 
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
@@ -70,10 +72,12 @@ namespace {
 			stdLibFunctions.insert({"vecAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecAdd})});
 			stdLibFunctions.insert({"vecBroadcast", llvm::SmallVector<StdLibFunction*, 4>({&vecBroadcast})});
 			stdLibFunctions.insert({"vecDiv", llvm::SmallVector<StdLibFunction*, 4>({&vecDiv})});
+			stdLibFunctions.insert({"vecExtractElement", llvm::SmallVector<StdLibFunction*, 4>({&vecExtractElement})});
 			stdLibFunctions.insert({"vecLoad", llvm::SmallVector<StdLibFunction*, 4>({&vecLoad})});
 			stdLibFunctions.insert({"vecHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecHAdd})});
 			stdLibFunctions.insert({"vecMul", llvm::SmallVector<StdLibFunction*, 4>({&vecMul})});
 			stdLibFunctions.insert({"vecRem", llvm::SmallVector<StdLibFunction*, 4>({&vecRem})});
+			stdLibFunctions.insert({"vecSeq", llvm::SmallVector<StdLibFunction*, 4>({&vecSeq})});
 			stdLibFunctions.insert({"vecSub", llvm::SmallVector<StdLibFunction*, 4>({&vecSub})});
 
 			for (auto& f : module.getFunctions()) {

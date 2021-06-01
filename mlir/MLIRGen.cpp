@@ -320,6 +320,9 @@ namespace {
 			if (callee == "vecDiv") {
 				return mlirGenVectorBinaryOperator<DivOp>(call);
 			}
+			if (callee == "vecExtractElement") {
+				return mlirGenVectorExtractElement(call);
+			}
 			if (callee == "vecHAdd") {
 				return mlirGenVectorHAdd(call);
 			}
@@ -331,6 +334,9 @@ namespace {
 			}
 			if (callee == "vecRem") {
 				return mlirGenVectorBinaryOperator<RemOp>(call);
+			}
+			if (callee == "vecSeq") {
+				return mlirGenVectorSeq(call);
 			}
 			if (callee == "vecSub") {
 				return mlirGenVectorBinaryOperator<SubOp>(call);
@@ -418,6 +424,24 @@ namespace {
 					mlir::VectorType::get(repetitions->getValue(), value.getType()), value);
 		}
 
+		mlir::Value mlirGenVectorExtractElement(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+
+			auto vec = mlirGen(*call.getArguments().front());
+			if (!vec) {
+				return nullptr;
+			}
+
+			auto idx = mlirGen(*call.getArguments().back());
+			if (!idx) {
+				return nullptr;
+			}
+
+			return builder.create<VectorExtractElementOp>(loc(call.getLocation()), vec.getType().cast<mlir::VectorType>().getElementType(), vec, idx);
+		}
+
 		mlir::Value mlirGenVectorHAdd(const ast::FunctionCall& call) {
 			if (call.getArguments().size() != 1) {
 				return nullptr;
@@ -448,6 +472,26 @@ namespace {
 			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
 			return builder.create<VectorLoadOp>(loc(call.getLocation()),
 					mlir::VectorType::get(length->getValue(), memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
+		}
+
+		mlir::Value mlirGenVectorSeq(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+
+			auto offset = mlirGen(*call.getArguments().front());
+			if (!offset) {
+				return nullptr;
+			}
+
+			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
+			if (length == nullptr) {
+				return nullptr;
+			}
+
+			auto lengthMlirValue = mlirGen(*length);
+
+			return builder.create<VectorSequenceOp>(loc(call.getLocation()), mlir::VectorType::get(length->getValue(), offset.getType()), offset, lengthMlirValue);
 		}
 
 		/// This is a reference to a variable in an expression. The variable is expected to have been declared and so

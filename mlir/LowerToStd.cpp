@@ -119,6 +119,21 @@ namespace {
 		}
 	};
 
+	class VectorExtractElementOpLowering : public ConversionPattern {
+	public:
+		explicit VectorExtractElementOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::VectorExtractElementOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto vectorExtractElementOp = cast<tvl::VectorExtractElementOp>(op);
+
+			rewriter.replaceOpWithNewOp<vector::ExtractElementOp>(op, vectorExtractElementOp.elementType(),
+					vectorExtractElementOp.vector(), vectorExtractElementOp.index());
+			return success();
+		}
+	};
+
 	class VectorHAddOpLowering : public ConversionPattern {
 	public:
 		explicit VectorHAddOpLowering(MLIRContext* context)
@@ -143,7 +158,8 @@ namespace {
 		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
 			auto vectorLoadOp = cast<tvl::VectorLoadOp>(op);
 
-			rewriter.replaceOpWithNewOp<vector::LoadOp>(op, vectorLoadOp.vectorType(), vectorLoadOp.base(), vectorLoadOp.indices());
+			rewriter.replaceOpWithNewOp<vector::LoadOp>(op, vectorLoadOp.vectorType(), vectorLoadOp.base(),
+					vectorLoadOp.indices());
 			//rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, vectorHAddOp.resultType(), "add",
 			//		vectorHAddOp.vector(), ValueRange({}));
 			return success();
@@ -183,8 +199,8 @@ void TvlToStdLoweringPass::runOnOperation() {
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
 	patterns.insert<AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, RemOpLowering,
-			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorHAddOpLowering,
-			VectorLoadOpLowering>(&getContext());
+			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorExtractElementOpLowering,
+			VectorHAddOpLowering, VectorLoadOpLowering>(&getContext());
 
 	// We want to completely lower to LLVM, so we use a `FullConversion`. This ensures that only legal operations will
 	// remain after the conversion.

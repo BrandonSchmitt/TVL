@@ -252,6 +252,24 @@ def VectorBroadcastOp : TvlOp<"vector_broadcast", [NoSideEffect]> {
 	let assemblyFormat = "$source attr-dict `:` type($source) `to` type($vector)";
 }
 
+def VectorExtractElementOp : TvlOp<"vector_extract_element", [
+		NoSideEffect,
+		//PredOpTrait<"source operand and result have same element type", TCresVTEtIsSameAsOpBase<0, 0>>
+		TypesMatchWith<"result type matches element type of vector operand", "vector", "element", "$_self.cast<ShapedType>().getElementType()">
+		]> {
+	let summary = "Extracts one element from an 1-D vector";
+
+	let arguments = (ins AnyVector:$vector, AnySignlessInteger:$index);
+	let results = (outs AnyType:$element);
+
+	let extraClassDeclaration = [{
+		Type elementType() { return element().getType(); }
+		VectorType vectorType() { return vector().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$vector `[` $index `:` type($index) `]` attr-dict `:` type($vector)";
+}
+
 def VectorHAddOp : TvlOp<"vector_hadd", [
 		NoSideEffect,
 		PredOpTrait<"source operand and result have same element type", TCresVTEtIsSameAsOpBase<0, 0>>
@@ -281,6 +299,19 @@ def VectorLoadOp : TvlOp<"vector_load", [NoSideEffect]> {
 	}];
 
 	let assemblyFormat = "$base `[` $indices `]` attr-dict `:` type($base) `,` type($result)";
+}
+
+def VectorSequenceOp : TvlOp<"vector_sequence", [NoSideEffect]> {
+	let summary = "Initializes a vector with a sequence of integers";
+
+	let arguments = (ins SignlessIntegerLike:$offset, SignlessIntegerLike:$length);
+	let results = (outs AnyVector:$result);
+
+	let extraClassDeclaration = [{
+		VectorType vectorType() { return result().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$offset `,` $length attr-dict `:` type($offset) `,` type($length) `in` type($result)";
 }
 
 def YieldOp : TvlOp<"yield", [NoSideEffect, /*ReturnLike,*/ Terminator, ParentOneOf<["ForOp"]>]> {

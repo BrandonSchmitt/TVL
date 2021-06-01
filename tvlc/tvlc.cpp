@@ -37,7 +37,11 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"), cl:
 
 namespace {
 	enum InputType {
-		TVL, MLIR
+		TVL, MLIR,
+	};
+
+	enum ExtensionType {
+		NoExtension, AVX512,
 	};
 }
 static cl::opt<enum InputType> inputType("x", cl::init(TVL), cl::desc("Decided the kind of output desired"),
@@ -46,6 +50,10 @@ static cl::opt<enum InputType> inputType("x", cl::init(TVL), cl::desc("Decided t
 
 static cl::opt<char> optimizationLevel("O", cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] (default = '-O2')"),
 		cl::Prefix, cl::ZeroOrMore, cl::init(' '));
+
+static cl::opt<enum ExtensionType> extensionType("ext", cl::init(NoExtension), cl::desc("Decide which cpu extension to use"),
+		cl::values(clEnumValN(NoExtension, "none", "no extension")),
+		cl::values(clEnumValN(AVX512, "avx512", "512-bit Advanced Vector Extensions")));
 
 static cl::opt<std::string> targetTriple("mtriple", cl::desc("Override target triple for module"));
 
@@ -147,6 +155,15 @@ int loadAndProcessMLIR(mlir::MLIRContext& context, mlir::OwningModuleRef& module
 	}
 
 	if (isLoweringToStd) {
+		switch (extensionType) {
+			case NoExtension:
+				pm.addPass(mlir::tvl::createNoExtensionLoweringPass());
+				break;
+			case AVX512:
+				pm.addPass(mlir::tvl::createAVX512LoweringPass());
+				break;
+		}
+
 		pm.addPass(mlir::tvl::createLowerToStdPass());
 	}
 

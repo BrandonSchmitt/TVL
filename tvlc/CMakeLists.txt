@@ -24,6 +24,7 @@ add_llvm_executable(tvlc
         ../mlir/LowerToLLVM.cpp
         ../mlir/LowerToSCF.cpp
         ../mlir/LowerToStd.cpp
+        ../mlir/ExtensionLoweringPass.cpp
         ${FLEX_TvlScanner_OUTPUTS}
         ${BISON_TvlParser_OUTPUTS}
         )

@@ -10,6 +10,8 @@ namespace mlir {
 		std::unique_ptr<mlir::Pass> createLowerToSCFPass();
 		std::unique_ptr<mlir::Pass> createLowerToStdPass();
 		std::unique_ptr<mlir::Pass> createLowerToLLVMPass();
+		std::unique_ptr<mlir::Pass> createAVX512LoweringPass();
+		std::unique_ptr<mlir::Pass> createNoExtensionLoweringPass();
 	} // namespace tvl
 } // namespace mlir
 

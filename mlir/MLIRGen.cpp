@@ -345,6 +345,28 @@ namespace {
 				return mlirGenRand_u64(call);
 			}
 
+			if (callee == "maskInit") {
+				return mlirGenMaskInit(call);
+			}
+			if (callee == "vecEq") {
+				return mlirGenBinaryCmpOperator<EqOp>(call);
+			}
+			if (callee == "vecNe") {
+				return mlirGenBinaryCmpOperator<NeOp>(call);
+			}
+			if (callee == "vecGe") {
+				return mlirGenBinaryCmpOperator<UgeOp>(call);
+			}
+			if (callee == "vecGt") {
+				return mlirGenBinaryCmpOperator<UgtOp>(call);
+			}
+			if (callee == "vecLe") {
+				return mlirGenBinaryCmpOperator<UleOp>(call);
+			}
+			if (callee == "vecLt") {
+				return mlirGenBinaryCmpOperator<UltOp>(call);
+			}
+
 			auto location = loc(call.getLocation());
 
 			// Codegen the operands first.
@@ -363,6 +385,29 @@ namespace {
 		}
 
 		template<typename Op>
+		mlir::Value mlirGenBinaryCmpOperator(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+			auto lhs = mlirGen(*call.getArguments().front());
+			if (!lhs) {
+				return nullptr;
+			}
+			auto rhs = mlirGen(*call.getArguments().back());
+			if (!rhs) {
+				return nullptr;
+			}
+
+			auto lhsVectorType = lhs.getType().dyn_cast<mlir::VectorType>();
+			if (lhsVectorType != nullptr) {
+				return builder.create<Op>(loc(call.getLocation()), mlir::VectorType::get(lhsVectorType.getShape(), builder.getI1Type()), lhs, rhs);
+			}
+			else {
+				return builder.create<Op>(loc(call.getLocation()), builder.getI1Type(), lhs, rhs);
+			}
+		}
+
+		template<typename Op>
 		mlir::Value mlirGenVectorBinaryOperator(const ast::FunctionCall& call) {
 			if (call.getArguments().size() != 2) {
 				return nullptr;
@@ -376,6 +421,20 @@ namespace {
 				return nullptr;
 			}
 			return builder.create<Op>(loc(call.getLocation()), lhs, rhs);
+		}
+
+		mlir::Value mlirGenMaskInit(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 1) {
+				return nullptr;
+			}
+			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
+			if (length == nullptr) {
+				return nullptr;
+			}
+
+			auto location = loc(call.getLocation());
+			auto value = builder.create<ConstantOp>(location, builder.getIntegerAttr(builder.getI1Type(), 0));
+			return builder.create<VectorBroadcastOp>(location, mlir::VectorType::get(length->getValue(), builder.getI1Type()), value);
 		}
 
 		mlir::LogicalResult mlirGenPrint(const ast::FunctionCall& call) {
@@ -422,6 +481,31 @@ namespace {
 
 			return builder.create<VectorBroadcastOp>(loc(call.getLocation()),
 					mlir::VectorType::get(repetitions->getValue(), value.getType()), value);
+		}
+
+		mlir::LogicalResult mlirGenVectorCompressStore(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 3) {
+				return mlir::failure();
+			}
+
+			auto vec = mlirGen(*call.getArguments().front());
+			if (!vec) {
+				return mlir::failure();
+			}
+
+			auto mask = mlirGen(*call.getArguments().at(1));
+			if (!mask) {
+				return mlir::failure();
+			}
+
+			auto mem = mlirGen(*call.getArguments().back());
+			if (!mem) {
+				return mlir::failure();
+			}
+
+			mlir::Value indexZero = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
+			builder.create<VectorCompressStoreOp>(loc(call.getLocation()), vec, mask, mem, mlir::ValueRange({indexZero}));
+			return mlir::success();
 		}
 
 		mlir::Value mlirGenVectorExtractElement(const ast::FunctionCall& call) {
@@ -574,6 +658,12 @@ namespace {
 					}
 					if (func->getCallee() == "srand") {
 						if (mlir::failed(mlirGenSrand(*func))) {
+							return mlir::failure();
+						}
+						continue;
+					}
+					if (func->getCallee() == "vecCompressStore") {
+						if (mlir::failed(mlirGenVectorCompressStore(*func))) {
 							return mlir::failure();
 						}
 						continue;

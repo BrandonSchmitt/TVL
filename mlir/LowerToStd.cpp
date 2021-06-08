@@ -32,6 +32,30 @@ namespace {
 	using DivOpLowering = BinaryOpLowering<tvl::DivOp, UnsignedDivIOp>;
 	using RemOpLowering = BinaryOpLowering<tvl::RemOp, UnsignedRemIOp>;
 
+	template<typename BinaryOperator, CmpIPredicate predicate>
+	class BinaryCmpOpLowering : public ConversionPattern {
+	public:
+		explicit BinaryCmpOpLowering(MLIRContext* context)
+				: ConversionPattern{BinaryOperator::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			rewriter.replaceOpWithNewOp<CmpIOp>(op, predicate, operands.front(), operands.back());
+			return success();
+		}
+	};
+
+	using EqOpLowering = BinaryCmpOpLowering<tvl::EqOp, CmpIPredicate::eq>;
+	using NeOpLowering = BinaryCmpOpLowering<tvl::NeOp, CmpIPredicate::ne>;
+	using SgeOpLowering = BinaryCmpOpLowering<tvl::SgeOp, CmpIPredicate::sge>;
+	using SgtOpLowering = BinaryCmpOpLowering<tvl::SgtOp, CmpIPredicate::sgt>;
+	using SleOpLowering = BinaryCmpOpLowering<tvl::SleOp, CmpIPredicate::sle>;
+	using SltOpLowering = BinaryCmpOpLowering<tvl::SltOp, CmpIPredicate::slt>;
+	using UgeOpLowering = BinaryCmpOpLowering<tvl::UgeOp, CmpIPredicate::uge>;
+	using UgtOpLowering = BinaryCmpOpLowering<tvl::UgtOp, CmpIPredicate::ugt>;
+	using UleOpLowering = BinaryCmpOpLowering<tvl::UleOp, CmpIPredicate::ule>;
+	using UltOpLowering = BinaryCmpOpLowering<tvl::UltOp, CmpIPredicate::ult>;
+
 	class ConstantOpLowering : public ConversionPattern {
 	public:
 		explicit ConstantOpLowering(MLIRContext* context)
@@ -119,6 +143,21 @@ namespace {
 		}
 	};
 
+	class VectorCompressStoreOpLowering : public ConversionPattern {
+	public:
+		explicit VectorCompressStoreOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::VectorCompressStoreOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto compressStoreOp = cast<tvl::VectorCompressStoreOp>(op);
+
+			rewriter.replaceOpWithNewOp<vector::CompressStoreOp>(op, compressStoreOp.base(), compressStoreOp.indices(),
+					compressStoreOp.mask(), compressStoreOp.valueToStore());
+			return success();
+		}
+	};
+
 	class VectorExtractElementOpLowering : public ConversionPattern {
 	public:
 		explicit VectorExtractElementOpLowering(MLIRContext* context)
@@ -198,9 +237,13 @@ void TvlToStdLoweringPass::runOnOperation() {
 	populateLoopToStdConversionPatterns(patterns);
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
-	patterns.insert<AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, RemOpLowering,
-			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorExtractElementOpLowering,
-			VectorHAddOpLowering, VectorLoadOpLowering>(&getContext());
+	patterns.insert<
+			// CmpI
+			EqOpLowering, NeOpLowering, SgeOpLowering, SgtOpLowering, SleOpLowering, SltOpLowering, UgeOpLowering,
+			UgtOpLowering, UleOpLowering, UltOpLowering,
+			AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, RemOpLowering,
+			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorCompressStoreOpLowering,
+			VectorExtractElementOpLowering, VectorHAddOpLowering, VectorLoadOpLowering>(&getContext());
 
 	// We want to completely lower to LLVM, so we use a `FullConversion`. This ensures that only legal operations will
 	// remain after the conversion.

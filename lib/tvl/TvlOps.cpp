@@ -7,6 +7,20 @@
 using namespace mlir;
 using namespace mlir::tvl;
 
+/** Helper functions **/
+
+// Return the type of the same shape (scalar, vector or tensor) containing i1.
+static Type getI1SameShape(Type type) {
+	auto i1Type = IntegerType::get(type.getContext(), 1);
+	if (auto tensorType = type.dyn_cast<RankedTensorType>())
+		return RankedTensorType::get(tensorType.getShape(), i1Type);
+	if (type.isa<UnrankedTensorType>())
+		return UnrankedTensorType::get(i1Type);
+	if (auto vectorType = type.dyn_cast<VectorType>())
+		return VectorType::get(vectorType.getShape(), i1Type);
+	return i1Type;
+}
+
 /** ConstantOp **/
 
 static mlir::ParseResult parseConstantOp(mlir::OpAsmParser& parser, mlir::OperationState& result) {

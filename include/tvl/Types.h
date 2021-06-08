@@ -22,6 +22,7 @@ namespace tvl {
 		array,
 		void_,
 		vec,
+		mask,
 		range,
 		callable,
 
@@ -130,6 +131,9 @@ namespace tvl {
 					break;
 				case vec:
 					result = "vec";
+					break;
+				case mask:
+					result = "mask";
 					break;
 				case void_:
 					result = "void";

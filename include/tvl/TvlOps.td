@@ -40,6 +40,8 @@ def ConstantOp : TvlOp<"constant", [NoSideEffect]> {
 
 def DivOp : TvlBinaryOp<"div"> {}
 
+def EqOp : TvlBinaryCmpOp<"eq"> {}
+
 def ForOp : TvlOp<"for", [SingleBlockImplicitTerminator<"tvl::YieldOp">]> {
 	let summary = "iterator loop";
 	let description = [{
@@ -139,6 +141,8 @@ def LoadOp : TvlOp<"load", [
 
 def MulOp : TvlBinaryOp<"mul", [Commutative]> {}
 
+def NeOp : TvlBinaryCmpOp<"ne"> {}
+
 def PrintOp : TvlOp<"print"> {
 	let summary = "print operation";
 	let description = [{
@@ -195,6 +199,11 @@ def ReturnOp : TvlOp<"return", [NoSideEffect, HasParent<"FuncOp">, Terminator]> 
 	//let verifier = [{ return ::verify(*this); }];
 }
 
+def SgeOp : TvlBinaryCmpOp<"sge"> {}
+def SgtOp : TvlBinaryCmpOp<"sgt"> {}
+def SleOp : TvlBinaryCmpOp<"sle"> {}
+def SltOp : TvlBinaryCmpOp<"slt"> {}
+
 def SRandOp : TvlOp<"srand"> {
 	let summary = "Seeds the random number generator";
 
@@ -232,6 +241,11 @@ def StoreOp : TvlOp<"store", [
 
 def SubOp : TvlBinaryOp<"sub"> {}
 
+def UgeOp : TvlBinaryCmpOp<"uge"> {}
+def UgtOp : TvlBinaryCmpOp<"ugt"> {}
+def UleOp : TvlBinaryCmpOp<"ule"> {}
+def UltOp : TvlBinaryCmpOp<"ult"> {}
+
 def VectorBroadcastOp : TvlOp<"vector_broadcast", [NoSideEffect]> {
 	let summary = "Broadcast a value to a vector";
 	let description = [{
@@ -250,6 +264,18 @@ def VectorBroadcastOp : TvlOp<"vector_broadcast", [NoSideEffect]> {
 	}];
 
 	let assemblyFormat = "$source attr-dict `:` type($source) `to` type($vector)";
+}
+
+def VectorCompressStoreOp : TvlOp<"vector_compress_store", []> {
+	let arguments = (ins VectorOfRank<[1]>:$valueToStore, VectorOfRankAndType<[1], [I1]>:$mask, Arg<AnyMemRef, "", [MemWrite]>:$base, Variadic<Index>:$indices);
+
+	let extraClassDeclaration = [{
+		MemRefType getMemRefType() { return base().getType().cast<MemRefType>(); }
+		VectorType getMaskVectorType() { return mask().getType().cast<VectorType>(); }
+		VectorType getVectorType() { return valueToStore().getType().cast<VectorType>(); }
+	}];
+	let assemblyFormat = "$valueToStore `,` $mask `,` $base `[` $indices `]` attr-dict `:` "
+			"type($valueToStore) `,` type($mask) `,` type($base)";
 }
 
 def VectorExtractElementOp : TvlOp<"vector_extract_element", [

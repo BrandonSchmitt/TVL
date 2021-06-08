@@ -23,4 +23,16 @@ class TvlBinaryOp<string mnemonic, list<OpTrait> traits = []> : TvlOp<mnemonic, 
 	let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($result)";
 }
 
+// Base class for standard binary arithmetic operations.
+class TvlBinaryCmpOp<string mnemonic, list<OpTrait> traits = []> : TvlOp<mnemonic, traits # [
+		NoSideEffect,
+		SameTypeOperands,
+		TypesMatchWith<"result type has i1 element type and same shape as operands", "lhs", "result", "getI1SameShape($_self)">
+	] # ElementwiseMappable.traits> {
+	let arguments = (ins SignlessIntegerLike:$lhs, SignlessIntegerLike:$rhs);
+	let results = (outs SignlessIntegerLike:$result);
+
+	let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs)";
+}
+
 #endif // TVL_DIALECT

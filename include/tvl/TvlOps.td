@@ -12,6 +12,46 @@ def AddOp : TvlBinaryOp<"add", [Commutative]> {
 		The shapes of the tensor operands are expected to match.
 	}];
 }
+def DivOp : TvlBinaryOp<"div"> {}
+def MulOp : TvlBinaryOp<"mul", [Commutative]> {}
+def RemOp : TvlBinaryOp<"rem"> {}
+def SubOp : TvlBinaryOp<"sub"> {}
+
+def AndOp : TvlBinaryOp<"and", [Commutative]> {}
+def OrOp : TvlBinaryOp<"or", [Commutative]> {}
+def XOrOp : TvlBinaryOp<"xor", [Commutative]> {}
+
+def MinOp : TvlBinaryOp<"min", [Commutative]> {}
+def MaxOp : TvlBinaryOp<"max", [Commutative]> {}
+
+def ShiftLeftOp : TvlBinaryOp<"shift_left"> {}
+def ShiftRightUnsignedOp : TvlBinaryOp<"shift_right_unsigned"> {}
+def ShiftRightSignedOp : TvlBinaryOp<"shift_right_signed"> {}
+
+def EqOp : TvlBinaryCmpOp<"eq", [Commutative]> {}
+def NeOp : TvlBinaryCmpOp<"ne", [Commutative]> {}
+def SgeOp : TvlBinaryCmpOp<"sge"> {}
+def SgtOp : TvlBinaryCmpOp<"sgt"> {}
+def SleOp : TvlBinaryCmpOp<"sle"> {}
+def SltOp : TvlBinaryCmpOp<"slt"> {}
+def UgeOp : TvlBinaryCmpOp<"uge"> {}
+def UgtOp : TvlBinaryCmpOp<"ugt"> {}
+def UleOp : TvlBinaryCmpOp<"ule"> {}
+def UltOp : TvlBinaryCmpOp<"ult"> {}
+
+class MaskCountOp<string mnemonic> : TvlOp<mnemonic, [NoSideEffect]> {
+	let arguments = (ins VectorOfRankAndType<[1], [I1]>:$mask);
+	let results = (outs Index:$count);
+
+	let builders = [
+		OpBuilder<(ins "Value":$mask), [{ build($_builder, $_state, $_builder.getIndexType(), mask); }]>
+	];
+
+	let assemblyFormat = "$mask attr-dict `:` type($mask)";
+}
+
+def MaskCountTrueOp : MaskCountOp<"mask_count_true"> {}
+def MaskCountFalseOp : MaskCountOp<"mask_count_false"> {}
 
 def ConstantOp : TvlOp<"constant", [NoSideEffect]> {
 	let summary = "constant";
@@ -37,10 +77,6 @@ def ConstantOp : TvlOp<"constant", [NoSideEffect]> {
 
 	let verifier = [{ return ::verify(*this); }];
 }
-
-def DivOp : TvlBinaryOp<"div"> {}
-
-def EqOp : TvlBinaryCmpOp<"eq"> {}
 
 def ForOp : TvlOp<"for", [SingleBlockImplicitTerminator<"tvl::YieldOp">]> {
 	let summary = "iterator loop";
@@ -139,10 +175,6 @@ def LoadOp : TvlOp<"load", [
 	let assemblyFormat = "$memRef `[` $index `]` attr-dict `:` type($memRef)";
 }
 
-def MulOp : TvlBinaryOp<"mul", [Commutative]> {}
-
-def NeOp : TvlBinaryCmpOp<"ne"> {}
-
 def PrintOp : TvlOp<"print"> {
 	let summary = "print operation";
 	let description = [{
@@ -161,8 +193,6 @@ def RandOp : TvlOp<"rand"> {
 
 	let assemblyFormat = "attr-dict `:` type($value)";
 }
-
-def RemOp : TvlBinaryOp<"rem"> {}
 
 def ReturnOp : TvlOp<"return", [NoSideEffect, HasParent<"FuncOp">, Terminator]> {
 	let summary = "return operation";
@@ -199,11 +229,6 @@ def ReturnOp : TvlOp<"return", [NoSideEffect, HasParent<"FuncOp">, Terminator]> 
 	//let verifier = [{ return ::verify(*this); }];
 }
 
-def SgeOp : TvlBinaryCmpOp<"sge"> {}
-def SgtOp : TvlBinaryCmpOp<"sgt"> {}
-def SleOp : TvlBinaryCmpOp<"sle"> {}
-def SltOp : TvlBinaryCmpOp<"slt"> {}
-
 def SRandOp : TvlOp<"srand"> {
 	let summary = "Seeds the random number generator";
 
@@ -238,13 +263,6 @@ def StoreOp : TvlOp<"store", [
 		$value `,` $memRef `[` $index `]` attr-dict `:` type($memRef)
 	}];
 }
-
-def SubOp : TvlBinaryOp<"sub"> {}
-
-def UgeOp : TvlBinaryCmpOp<"uge"> {}
-def UgtOp : TvlBinaryCmpOp<"ugt"> {}
-def UleOp : TvlBinaryCmpOp<"ule"> {}
-def UltOp : TvlBinaryCmpOp<"ult"> {}
 
 def VectorBroadcastOp : TvlOp<"vector_broadcast", [NoSideEffect]> {
 	let summary = "Broadcast a value to a vector";
@@ -296,6 +314,19 @@ def VectorExtractElementOp : TvlOp<"vector_extract_element", [
 	let assemblyFormat = "$vector `[` $index `:` type($index) `]` attr-dict `:` type($vector)";
 }
 
+def VectorGatherOp : TvlOp<"vector_gather"> {
+	let arguments = (ins Arg<AnyMemRef, "", [MemRead]>:$base, Variadic<Index>:$indices, VectorOfRankAndType<[1], [AnyInteger]>:$indexVector);
+	let results = (outs VectorOfRank<[1]>:$result);
+
+	let extraClassDeclaration = [{
+		MemRefType memRefType() { return base().getType().cast<MemRefType>(); }
+		VectorType indexVectorType() { return indexVector().getType().cast<VectorType>(); }
+		VectorType resultType() { return result().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$base `[` $indices `]` `[` $indexVector `]` attr-dict `:` type($base) `,` type($indexVector) `into` type($result)";
+}
+
 def VectorHAddOp : TvlOp<"vector_hadd", [
 		NoSideEffect,
 		PredOpTrait<"source operand and result have same element type", TCresVTEtIsSameAsOpBase<0, 0>>
@@ -338,6 +369,17 @@ def VectorSequenceOp : TvlOp<"vector_sequence", [NoSideEffect]> {
 	}];
 
 	let assemblyFormat = "$offset `,` $length attr-dict `:` type($offset) `,` type($length) `in` type($result)";
+}
+
+def VectorStoreOp : TvlOp<"vector_store", []> {
+	let arguments = (ins AnyVector:$vector, Arg<AnyMemRef, "the reference to store to", [MemWrite]>:$base, Variadic<Index>:$indices);
+
+	let extraClassDeclaration = [{
+		MemRefType memRefType() { return base().getType().cast<MemRefType>(); }
+		VectorType vectorType() { return vector().getType().cast<VectorType>(); }
+	}];
+
+	let assemblyFormat = "$vector `,` $base `[` $indices `]` attr-dict `:` type($base) `,` type($vector)";
 }
 
 def YieldOp : TvlOp<"yield", [NoSideEffect, /*ReturnLike,*/ Terminator, ParentOneOf<["ForOp"]>]> {

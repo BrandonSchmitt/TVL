@@ -50,7 +50,6 @@ namespace {
 			// Make c std functions known
 			// parameters types are in the default ordering with the result type on position 0 and the first parameter
 			// at index 1 and so on.
-			auto maskInit = StdLibFunction("maskInit", {LangType{mask}, usizeType});
 			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
 			auto print_usize = StdLibFunction("print", {voidType, usizeType});
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
@@ -62,10 +61,26 @@ namespace {
 			auto vecExtractElement = StdLibFunction("vecExtractElement", {unknownType, LangType{vec}, u64Type});
 			auto vecLoad = StdLibFunction("vecLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
 			auto vecHAdd = StdLibFunction("vecHAdd", {u64Type, LangType{vec}});
+			auto vecStore = StdLibFunction("vecStore", {voidType, LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}});
+			auto vecGather = StdLibFunction("vecGather", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, LangType{vec}});
 			auto vecMul = StdLibFunction("vecMul", {LangType{vec}, LangType{vec}, LangType{vec}});
 			auto vecRem = StdLibFunction("vecRem", {LangType{vec}, LangType{vec}, LangType{vec}});
 			auto vecSeq = StdLibFunction("vecSeq", {LangType{vec}, u64Type, usizeType});
 			auto vecSub = StdLibFunction("vecSub", {LangType{vec}, LangType{vec}, LangType{vec}});
+
+			auto vecAnd = StdLibFunction("vecAnd", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecOr = StdLibFunction("vecOr", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecXOr = StdLibFunction("vecXOr", {LangType{vec}, LangType{vec}, LangType{vec}});
+
+			auto vecMin = StdLibFunction("vecMin", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecMax = StdLibFunction("vecMax", {LangType{vec}, LangType{vec}, LangType{vec}});
+
+			auto vecShiftLeft = StdLibFunction("vecShiftLeft", {LangType{vec}, LangType{vec}, u64Type});
+			auto vecShiftLeftIndividual = StdLibFunction("vecShiftLeftIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecShiftRightUnsigned = StdLibFunction("vecShiftLeft", {LangType{vec}, LangType{vec}, u64Type});
+			auto vecShiftRightUnsignedIndividual = StdLibFunction("vecShiftRightUnsignedIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecShiftRightSigned = StdLibFunction("vecShiftRightSigned", {LangType{vec}, LangType{vec}, u64Type});
+			auto vecShiftRightSignedIndividual = StdLibFunction("vecShiftRightSignedIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
 
 			auto vecEq = StdLibFunction("vecEq", {LangType{mask}, LangType{vec}, LangType{vec}});
 			auto vecNe = StdLibFunction("vecNe", {LangType{mask}, LangType{vec}, LangType{vec}});
@@ -74,8 +89,14 @@ namespace {
 			auto vecLe = StdLibFunction("vecLe", {LangType{mask}, LangType{vec}, LangType{vec}});
 			auto vecLt = StdLibFunction("vecLt", {LangType{mask}, LangType{vec}, LangType{vec}});
 
+			auto maskInit = StdLibFunction("maskInit", {LangType{mask}, usizeType});
+			auto maskAnd = StdLibFunction("maskAnd", {LangType{mask}, LangType{mask}, LangType{mask}});
+			auto maskOr = StdLibFunction("maskOr", {LangType{mask}, LangType{mask}, LangType{mask}});
+			auto maskXOr = StdLibFunction("maskXOr", {LangType{mask}, LangType{mask}, LangType{mask}});
+			auto maskCountTrue = StdLibFunction("maskCountTrue", {usizeType, LangType{mask}});
+			auto maskCountFalse = StdLibFunction("maskCountFalse", {usizeType, LangType{mask}});
+
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
-			stdLibFunctions.insert({"maskInit", llvm::SmallVector<StdLibFunction*, 4>({&maskInit})});
 			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>({&print_u64, &print_usize})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
@@ -85,11 +106,27 @@ namespace {
 			stdLibFunctions.insert({"vecDiv", llvm::SmallVector<StdLibFunction*, 4>({&vecDiv})});
 			stdLibFunctions.insert({"vecExtractElement", llvm::SmallVector<StdLibFunction*, 4>({&vecExtractElement})});
 			stdLibFunctions.insert({"vecLoad", llvm::SmallVector<StdLibFunction*, 4>({&vecLoad})});
+			stdLibFunctions.insert({"vecStore", llvm::SmallVector<StdLibFunction*, 4>({&vecStore})});
+			stdLibFunctions.insert({"vecGather", llvm::SmallVector<StdLibFunction*, 4>({&vecGather})});
 			stdLibFunctions.insert({"vecHAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecHAdd})});
 			stdLibFunctions.insert({"vecMul", llvm::SmallVector<StdLibFunction*, 4>({&vecMul})});
 			stdLibFunctions.insert({"vecRem", llvm::SmallVector<StdLibFunction*, 4>({&vecRem})});
 			stdLibFunctions.insert({"vecSeq", llvm::SmallVector<StdLibFunction*, 4>({&vecSeq})});
 			stdLibFunctions.insert({"vecSub", llvm::SmallVector<StdLibFunction*, 4>({&vecSub})});
+
+			stdLibFunctions.insert({"vecAnd", llvm::SmallVector<StdLibFunction*, 4>({&vecAnd})});
+			stdLibFunctions.insert({"vecOr", llvm::SmallVector<StdLibFunction*, 4>({&vecOr})});
+			stdLibFunctions.insert({"vecXOr", llvm::SmallVector<StdLibFunction*, 4>({&vecXOr})});
+
+			stdLibFunctions.insert({"vecMin", llvm::SmallVector<StdLibFunction*, 4>({&vecMin})});
+			stdLibFunctions.insert({"vecMax", llvm::SmallVector<StdLibFunction*, 4>({&vecMax})});
+
+			stdLibFunctions.insert({"vecShiftLeft", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftLeft})});
+			stdLibFunctions.insert({"vecShiftLeftIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftLeftIndividual})});
+			stdLibFunctions.insert({"vecShiftRightUnsigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsigned})});
+			stdLibFunctions.insert({"vecShiftRightUnsignedIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsignedIndividual})});
+			stdLibFunctions.insert({"vecShiftRightSigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSigned})});
+			stdLibFunctions.insert({"vecShiftRightSignedIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSignedIndividual})});
 
 			stdLibFunctions.insert({"vecEq", llvm::SmallVector<StdLibFunction*, 4>({&vecEq})});
 			stdLibFunctions.insert({"vecNe", llvm::SmallVector<StdLibFunction*, 4>({&vecNe})});
@@ -97,6 +134,13 @@ namespace {
 			stdLibFunctions.insert({"vecGt", llvm::SmallVector<StdLibFunction*, 4>({&vecGt})});
 			stdLibFunctions.insert({"vecLe", llvm::SmallVector<StdLibFunction*, 4>({&vecLe})});
 			stdLibFunctions.insert({"vecLt", llvm::SmallVector<StdLibFunction*, 4>({&vecLt})});
+
+			stdLibFunctions.insert({"maskInit", llvm::SmallVector<StdLibFunction*, 4>({&maskInit})});
+			stdLibFunctions.insert({"maskAnd", llvm::SmallVector<StdLibFunction*, 4>({&maskAnd})});
+			stdLibFunctions.insert({"maskOr", llvm::SmallVector<StdLibFunction*, 4>({&maskOr})});
+			stdLibFunctions.insert({"maskXOr", llvm::SmallVector<StdLibFunction*, 4>({&maskXOr})});
+			stdLibFunctions.insert({"maskCountTrue", llvm::SmallVector<StdLibFunction*, 4>({&maskCountTrue})});
+			stdLibFunctions.insert({"maskCountFalse", llvm::SmallVector<StdLibFunction*, 4>({&maskCountFalse})});
 
 			for (auto& f : module.getFunctions()) {
 				if (!inferBottomUp(*f)) {

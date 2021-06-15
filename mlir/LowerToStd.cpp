@@ -31,6 +31,38 @@ namespace {
 	using MulOpLowering = BinaryOpLowering<tvl::MulOp, MulIOp>;
 	using DivOpLowering = BinaryOpLowering<tvl::DivOp, UnsignedDivIOp>;
 	using RemOpLowering = BinaryOpLowering<tvl::RemOp, UnsignedRemIOp>;
+	using AndOpLowering = BinaryOpLowering<tvl::AndOp, AndOp>;
+	using OrOpLowering = BinaryOpLowering<tvl::OrOp, OrOp>;
+	using XOrOpLowering = BinaryOpLowering<tvl::XOrOp, XOrOp>;
+	using ShiftLeftOpLowering = BinaryOpLowering<tvl::ShiftLeftOp, ShiftLeftOp>;
+	using ShiftRightUnsignedOpLowering = BinaryOpLowering<tvl::ShiftRightUnsignedOp, UnsignedShiftRightOp>;
+	using ShiftRightSignedOpLowering = BinaryOpLowering<tvl::ShiftRightSignedOp, SignedShiftRightOp>;
+
+	class MinOpLowering : public ConversionPattern {
+	public:
+		explicit MinOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::MinOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			mlir::Value cmp = rewriter.create<tvl::UltOp>(op->getLoc(), operands.front(), operands.back());
+			rewriter.replaceOpWithNewOp<SelectOp>(op, cmp, operands.front(), operands.back());
+			return success();
+		}
+	};
+
+	class MaxOpLowering : public ConversionPattern {
+	public:
+		explicit MaxOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::MaxOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			mlir::Value cmp = rewriter.create<tvl::UgtOp>(op->getLoc(), operands.front(), operands.back());
+			rewriter.replaceOpWithNewOp<SelectOp>(op, cmp, operands.front(), operands.back());
+			return success();
+		}
+	};
 
 	template<typename BinaryOperator, CmpIPredicate predicate>
 	class BinaryCmpOpLowering : public ConversionPattern {
@@ -55,6 +87,22 @@ namespace {
 	using UgtOpLowering = BinaryCmpOpLowering<tvl::UgtOp, CmpIPredicate::ugt>;
 	using UleOpLowering = BinaryCmpOpLowering<tvl::UleOp, CmpIPredicate::ule>;
 	using UltOpLowering = BinaryCmpOpLowering<tvl::UltOp, CmpIPredicate::ult>;
+
+//	class MaskCountTrueOpLowering : public ConversionPattern {
+//	public:
+//		explicit MaskCountTrueOpLowering(MLIRContext* context)
+//				: ConversionPattern(tvl::MaskCountTrueOp::getOperationName(), 1, context) {}
+//
+//		LogicalResult
+//		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+//			auto maskCountTrueOp = cast<tvl::MaskCountTrueOp>(op);
+//
+//			auto type = rewriter.getIntegerType(10);
+//			mlir::Value casted = rewriter.create<vector::BitCastOp>(op->getLoc(), mlir::VectorType::get(1, type), maskCountTrueOp.mask());
+//			rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, type, "add", casted, ValueRange({}));
+//			return success();
+//		}
+//	};
 
 	class ConstantOpLowering : public ConversionPattern {
 	public:
@@ -173,6 +221,26 @@ namespace {
 		}
 	};
 
+	class VectorGatherOpLowering : public ConversionPattern {
+	public:
+		explicit VectorGatherOpLowering(MLIRContext* context)
+		: ConversionPattern{tvl::VectorGatherOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto vectorGatherOp = cast<tvl::VectorGatherOp>(op);
+
+			mlir::Value constantTrue = rewriter.create<ConstantOp>(op->getLoc(), rewriter.getIntegerAttr(rewriter.getI1Type(), 1));
+			mlir::Value mask = rewriter.create<vector::BroadcastOp>(op->getLoc(), VectorType::get(vectorGatherOp.indexVectorType().getShape(), rewriter.getI1Type()), constantTrue);
+
+			mlir::Value constant0 = rewriter.create<ConstantOp>(op->getLoc(), rewriter.getIntegerAttr(vectorGatherOp.resultType().getElementType(), 0));
+			mlir::Value passThrough = rewriter.create<vector::BroadcastOp>(op->getLoc(), vectorGatherOp.resultType(), constant0);
+
+			rewriter.replaceOpWithNewOp<vector::GatherOp>(op, vectorGatherOp.resultType(), vectorGatherOp.base(), vectorGatherOp.indices(), vectorGatherOp.indexVector(), mask, passThrough);
+			return success();
+		}
+	};
+
 	class VectorHAddOpLowering : public ConversionPattern {
 	public:
 		explicit VectorHAddOpLowering(MLIRContext* context)
@@ -199,8 +267,21 @@ namespace {
 
 			rewriter.replaceOpWithNewOp<vector::LoadOp>(op, vectorLoadOp.vectorType(), vectorLoadOp.base(),
 					vectorLoadOp.indices());
-			//rewriter.replaceOpWithNewOp<vector::ReductionOp>(op, vectorHAddOp.resultType(), "add",
-			//		vectorHAddOp.vector(), ValueRange({}));
+			return success();
+		}
+	};
+
+	class VectorStoreOpLowering : public ConversionPattern {
+	public:
+		explicit VectorStoreOpLowering(MLIRContext* context)
+				: ConversionPattern{tvl::VectorStoreOp::getOperationName(), 1, context} {}
+
+		LogicalResult
+		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto vectorStoreOp = cast<tvl::VectorStoreOp>(op);
+
+			rewriter.replaceOpWithNewOp<vector::StoreOp>(op, vectorStoreOp.vector(), vectorStoreOp.base(),
+					vectorStoreOp.indices());
 			return success();
 		}
 	};
@@ -238,12 +319,19 @@ void TvlToStdLoweringPass::runOnOperation() {
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.
 	patterns.insert<
+			// General operations
+			ConstantOpLowering, ReturnOpLowering,
+			// Binary operations
+			AddOpLowering, DivOpLowering, MulOpLowering, RemOpLowering, SubOpLowering, AndOpLowering, OrOpLowering,
+			XOrOpLowering, MinOpLowering, MaxOpLowering, ShiftLeftOpLowering, ShiftRightUnsignedOpLowering,
+			ShiftRightSignedOpLowering,
 			// CmpI
 			EqOpLowering, NeOpLowering, SgeOpLowering, SgtOpLowering, SleOpLowering, SltOpLowering, UgeOpLowering,
 			UgtOpLowering, UleOpLowering, UltOpLowering,
-			AddOpLowering, ConstantOpLowering, DivOpLowering, LoadOpLowering, MulOpLowering, RemOpLowering,
-			ReturnOpLowering, StoreOpLowering, SubOpLowering, VectorBroadcastOpLowering, VectorCompressStoreOpLowering,
-			VectorExtractElementOpLowering, VectorHAddOpLowering, VectorLoadOpLowering>(&getContext());
+			// Vector operations
+			LoadOpLowering, StoreOpLowering, VectorBroadcastOpLowering, VectorCompressStoreOpLowering,
+			VectorExtractElementOpLowering, VectorGatherOpLowering, VectorHAddOpLowering, VectorLoadOpLowering,
+			VectorStoreOpLowering>(&getContext());
 
 	// We want to completely lower to LLVM, so we use a `FullConversion`. This ensures that only legal operations will
 	// remain after the conversion.

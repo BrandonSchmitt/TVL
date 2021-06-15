@@ -32,6 +32,18 @@ class TvlBinaryCmpOp<string mnemonic, list<OpTrait> traits = []> : TvlOp<mnemoni
 	let arguments = (ins SignlessIntegerLike:$lhs, SignlessIntegerLike:$rhs);
 	let results = (outs SignlessIntegerLike:$result);
 
+	let builders = [
+		OpBuilder<(ins "Value":$lhs, "Value":$rhs), [{
+			auto lhsVectorType = lhs.getType().dyn_cast<mlir::VectorType>();
+			if (lhsVectorType != nullptr) {
+				return build($_builder, $_state, mlir::VectorType::get(lhsVectorType.getShape(), $_builder.getI1Type()), lhs, rhs);
+			}
+			else {
+				return build($_builder, $_state, $_builder.getI1Type(), lhs, rhs);
+			}
+		}]>
+	];
+
 	let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs)";
 }
 

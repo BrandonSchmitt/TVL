@@ -195,6 +195,7 @@ namespace {
 
 			// Register the value in the symbol table.
 			if (failed(declare(node.getName(), value))) {
+				emitError(loc(node.getLocation()), "There is already a variable with the name " + node.getName());
 				return nullptr;
 			}
 			return value;
@@ -312,16 +313,19 @@ namespace {
 			llvm::StringRef callee = call.getCallee();
 
 			if (callee == "vecAdd") {
-				return mlirGenVectorBinaryOperator<AddOp>(call);
+				return mlirGenBinaryOperator<AddOp>(call);
 			}
 			if (callee == "vecBroadcast") {
 				return mlirGenVectorBroadcast(call);
 			}
 			if (callee == "vecDiv") {
-				return mlirGenVectorBinaryOperator<DivOp>(call);
+				return mlirGenBinaryOperator<DivOp>(call);
 			}
 			if (callee == "vecExtractElement") {
 				return mlirGenVectorExtractElement(call);
+			}
+			if (callee == "vecGather") {
+				return mlirGenVectorGather(call);
 			}
 			if (callee == "vecHAdd") {
 				return mlirGenVectorHAdd(call);
@@ -330,16 +334,34 @@ namespace {
 				return mlirGenVectorLoad(call);
 			}
 			if (callee == "vecMul") {
-				return mlirGenVectorBinaryOperator<MulOp>(call);
+				return mlirGenBinaryOperator<MulOp>(call);
 			}
 			if (callee == "vecRem") {
-				return mlirGenVectorBinaryOperator<RemOp>(call);
+				return mlirGenBinaryOperator<RemOp>(call);
 			}
 			if (callee == "vecSeq") {
 				return mlirGenVectorSeq(call);
 			}
+			if (callee == "vecShiftLeft") {
+				return mlirGenShiftOperator<ShiftLeftOp>(call);
+			}
+			if (callee == "vecShiftLeftIndividual") {
+				return mlirGenBinaryOperator<ShiftLeftOp>(call);
+			}
+			if (callee == "vecShiftRightUnsigned") {
+				return mlirGenShiftOperator<ShiftRightUnsignedOp>(call);
+			}
+			if (callee == "vecShiftRightUnsignedIndividual") {
+				return mlirGenBinaryOperator<ShiftRightUnsignedOp>(call);
+			}
+			if (callee == "vecShiftRightSigned") {
+				return mlirGenShiftOperator<ShiftRightSignedOp>(call);
+			}
+			if (callee == "vecShiftRightSignedIndividual") {
+				return mlirGenBinaryOperator<ShiftRightSignedOp>(call);
+			}
 			if (callee == "vecSub") {
-				return mlirGenVectorBinaryOperator<SubOp>(call);
+				return mlirGenBinaryOperator<SubOp>(call);
 			}
 			if (callee == "rand_u64") {
 				return mlirGenRand_u64(call);
@@ -347,6 +369,27 @@ namespace {
 
 			if (callee == "maskInit") {
 				return mlirGenMaskInit(call);
+			}
+			if (callee == "maskAnd" || callee == "vecAnd") {
+				return mlirGenBinaryOperator<AndOp>(call);
+			}
+			if (callee == "maskOr" || callee == "vecOr") {
+				return mlirGenBinaryOperator<OrOp>(call);
+			}
+			if (callee == "maskXOr" || callee == "vecXOr") {
+				return mlirGenBinaryOperator<XOrOp>(call);
+			}
+			if (callee == "maskCountTrue") {
+				return mlirGenUnaryOperator<MaskCountTrueOp>(call);
+			}
+			if (callee == "maskCountFalse") {
+				return mlirGenUnaryOperator<MaskCountFalseOp>(call);
+			}
+			if (callee == "vecMin") {
+				return mlirGenBinaryOperator<MinOp>(call);
+			}
+			if (callee == "vecMax") {
+				return mlirGenBinaryOperator<MaxOp>(call);
 			}
 			if (callee == "vecEq") {
 				return mlirGenBinaryCmpOperator<EqOp>(call);
@@ -385,6 +428,34 @@ namespace {
 		}
 
 		template<typename Op>
+		mlir::Value mlirGenUnaryOperator(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 1) {
+				return nullptr;
+			}
+			auto operand = mlirGen(*call.getArguments().front());
+			if (!operand) {
+				return nullptr;
+			}
+			return builder.create<Op>(loc(call.getLocation()), operand);
+		}
+
+		template<typename Op>
+		mlir::Value mlirGenBinaryOperator(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+			auto lhs = mlirGen(*call.getArguments().front());
+			if (!lhs) {
+				return nullptr;
+			}
+			auto rhs = mlirGen(*call.getArguments().back());
+			if (!rhs) {
+				return nullptr;
+			}
+			return builder.create<Op>(loc(call.getLocation()), lhs, rhs);
+		}
+
+		template<typename Op>
 		mlir::Value mlirGenBinaryCmpOperator(const ast::FunctionCall& call) {
 			if (call.getArguments().size() != 2) {
 				return nullptr;
@@ -398,29 +469,31 @@ namespace {
 				return nullptr;
 			}
 
-			auto lhsVectorType = lhs.getType().dyn_cast<mlir::VectorType>();
-			if (lhsVectorType != nullptr) {
-				return builder.create<Op>(loc(call.getLocation()), mlir::VectorType::get(lhsVectorType.getShape(), builder.getI1Type()), lhs, rhs);
-			}
-			else {
-				return builder.create<Op>(loc(call.getLocation()), builder.getI1Type(), lhs, rhs);
-			}
+			return builder.create<Op>(loc(call.getLocation()), lhs, rhs);
 		}
 
-		template<typename Op>
-		mlir::Value mlirGenVectorBinaryOperator(const ast::FunctionCall& call) {
+		template<typename ShiftOp>
+		mlir::Value mlirGenShiftOperator(const ast::FunctionCall& call) {
 			if (call.getArguments().size() != 2) {
 				return nullptr;
 			}
-			auto lhs = mlirGen(*call.getArguments().front());
-			if (!lhs) {
+
+			auto vector = mlirGen(*call.getArguments().front());
+			if (!vector) {
 				return nullptr;
 			}
-			auto rhs = mlirGen(*call.getArguments().back());
-			if (!rhs) {
+			auto vectorType = vector.getType().dyn_cast<mlir::VectorType>();
+			if (!vectorType) {
 				return nullptr;
 			}
-			return builder.create<Op>(loc(call.getLocation()), lhs, rhs);
+
+			auto bits = mlirGen(*call.getArguments().back());
+			if (!bits) {
+				return nullptr;
+			}
+
+			mlir::Value broadcast = builder.create<VectorBroadcastOp>(loc(call.getLocation()), vectorType, bits);
+			return builder.create<ShiftOp>(loc(call.getLocation()), vector, broadcast);
 		}
 
 		mlir::Value mlirGenMaskInit(const ast::FunctionCall& call) {
@@ -526,6 +599,33 @@ namespace {
 			return builder.create<VectorExtractElementOp>(loc(call.getLocation()), vec.getType().cast<mlir::VectorType>().getElementType(), vec, idx);
 		}
 
+		mlir::Value mlirGenVectorGather(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return nullptr;
+			}
+
+			auto memRef = mlirGen(*call.getArguments().front());
+			if (!memRef) {
+				return nullptr;
+			}
+			auto memRefType = memRef.getType().dyn_cast<mlir::MemRefType>();
+			if (!memRefType) {
+				return nullptr;
+			}
+
+			auto indexVector = mlirGen(*call.getArguments().back());
+			if (!indexVector) {
+				return nullptr;
+			}
+			auto indexVectorType = indexVector.getType().dyn_cast<mlir::VectorType>();
+			if (!indexVectorType) {
+				return nullptr;
+			}
+
+			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
+			return builder.create<VectorGatherOp>(loc(call.getLocation()), mlir::VectorType::get(indexVectorType.getShape(), memRefType.getElementType()), memRef, index, indexVector);
+		}
+
 		mlir::Value mlirGenVectorHAdd(const ast::FunctionCall& call) {
 			if (call.getArguments().size() != 1) {
 				return nullptr;
@@ -556,6 +656,26 @@ namespace {
 			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
 			return builder.create<VectorLoadOp>(loc(call.getLocation()),
 					mlir::VectorType::get(length->getValue(), memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
+		}
+
+		mlir::LogicalResult mlirGenVectorStore(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 2) {
+				return mlir::failure();
+			}
+
+			auto vector = mlirGen(*call.getArguments().front());
+			if (!vector) {
+				return mlir::failure();
+			}
+
+			auto memref = mlirGen(*call.getArguments().back());
+			if (!memref) {
+				return mlir::failure();
+			}
+
+			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
+			builder.create<VectorStoreOp>(loc(call.getLocation()), vector, memref, index);
+			return mlir::success();
 		}
 
 		mlir::Value mlirGenVectorSeq(const ast::FunctionCall& call) {
@@ -664,6 +784,12 @@ namespace {
 					}
 					if (func->getCallee() == "vecCompressStore") {
 						if (mlir::failed(mlirGenVectorCompressStore(*func))) {
+							return mlir::failure();
+						}
+						continue;
+					}
+					if (func->getCallee() == "vecStore") {
+						if (mlir::failed(mlirGenVectorStore(*func))) {
 							return mlir::failure();
 						}
 						continue;

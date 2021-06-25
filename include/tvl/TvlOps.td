@@ -181,7 +181,7 @@ def PrintOp : TvlOp<"print"> {
 		The "print" builtin operation prints a given input integer, and produces no results.
 	}];
 
-	let arguments = (ins AnyTypeOf<[I64, Index]>:$input);
+	let arguments = (ins AnyTypeOf<[I8, I16, I32, I64, Index]>:$input);
 
 	let assemblyFormat = "$input attr-dict `:` type($input)";
 }
@@ -361,14 +361,14 @@ def VectorLoadOp : TvlOp<"vector_load", [NoSideEffect]> {
 def VectorSequenceOp : TvlOp<"vector_sequence", [NoSideEffect]> {
 	let summary = "Initializes a vector with a sequence of integers";
 
-	let arguments = (ins SignlessIntegerLike:$offset, SignlessIntegerLike:$length);
+	let arguments = (ins SignlessIntegerLike:$offset);
 	let results = (outs AnyVector:$result);
 
 	let extraClassDeclaration = [{
 		VectorType vectorType() { return result().getType().cast<VectorType>(); }
 	}];
 
-	let assemblyFormat = "$offset `,` $length attr-dict `:` type($offset) `,` type($length) `in` type($result)";
+	let assemblyFormat = "$offset attr-dict `:` type($offset) `in` type($result)";
 }
 
 def VectorStoreOp : TvlOp<"vector_store", []> {

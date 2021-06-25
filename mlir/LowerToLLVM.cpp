@@ -20,21 +20,40 @@ namespace {
 
 		LogicalResult
 		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
+			auto printOp = cast<tvl::PrintOp>(op);
 			auto loc = op->getLoc();
 
 			ModuleOp parentModule = op->getParentOfType<ModuleOp>();
 
 			// Get a symbol reference to the printf function, inserting it if necessary.
 			auto printfRef = getOrInsertPrintf(rewriter, parentModule);
-			Value formatSpecifierCst = getOrCreateGlobalString(loc, rewriter, "frmt_spec", StringRef("%lu\0", 4),
-					parentModule);
-			static_assert(sizeof(long int) == 8, "%lu is the wrong identifier for printf");
-			Value newLineCst = getOrCreateGlobalString(loc, rewriter, "nl", StringRef("\n\0", 2), parentModule);
+			Value formatSpecifierCst;
+			if (printOp.input().getType().isInteger(64)) {
+				formatSpecifierCst = getOrCreateGlobalString(loc, rewriter, "frmt_spec_lu", StringRef("%lu\n\0", 5),
+						parentModule);
+				static_assert(sizeof(long int) == 8, "%lu is the wrong identifier for printf");
+			}
+			else if (printOp.input().getType().isInteger(32)) {
+				formatSpecifierCst = getOrCreateGlobalString(loc, rewriter, "frmt_spec_u", StringRef("%u\n\0", 4),
+						parentModule);
+				static_assert(sizeof(int) == 4, "%u is the wrong identifier for printf");
+			}
+			else if (printOp.input().getType().isInteger(16)) {
+				formatSpecifierCst = getOrCreateGlobalString(loc, rewriter, "frmt_spec_hu", StringRef("%hu\n\0", 5),
+						parentModule);
+				static_assert(sizeof(short int) == 2, "%hu is the wrong identifier for printf");
+			}
+			else if (printOp.input().getType().isInteger(8)) {
+				formatSpecifierCst = getOrCreateGlobalString(loc, rewriter, "frmt_spec_hhu", StringRef("%hhu\n\0", 6),
+						parentModule);
+				static_assert(sizeof(char) == 1, "%hhu is the wrong identifier for printf");
+			}
+			else {
+				return failure();
+			}
 
-			auto printOp = cast<tvl::PrintOp>(op);
 			rewriter.create<CallOp>(loc, printfRef, rewriter.getIntegerType(32),
 					ArrayRef<Value>({formatSpecifierCst, printOp.input()}));
-			rewriter.create<CallOp>(loc, printfRef, rewriter.getIntegerType(32), newLineCst);
 
 			// Notify the rewriter that this operation has been removed.
 			rewriter.eraseOp(op);

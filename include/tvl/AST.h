@@ -5,10 +5,12 @@
 #include <ostream>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "tvl/Types.h"
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
@@ -21,6 +23,7 @@ namespace tvl {
 		class Assignment;
 		class BinaryOperator;
 		class ConstDeclaration;
+		class Expression;
 		class ForLoop;
 		class Function;
 		class FunctionCall;
@@ -31,7 +34,26 @@ namespace tvl {
 		class Module;
 		class Parameter;
 		class Range;
+		class Statement;
+		class TemplateParameter;
 		// End of forward declarations
+
+		using ExpressionPtr = std::unique_ptr<Expression>;
+		using ExpressionPtrVec = std::vector<ExpressionPtr>;
+		using FunctionPtr = std::unique_ptr<Function>;
+		using FunctionPtrVec = std::vector<FunctionPtr>;
+		using IdentifierPtr = std::unique_ptr<Identifier>;
+		using IntegerPtr = std::unique_ptr<Integer>;
+		using ParameterPtr = std::unique_ptr<Parameter>;
+		using ParameterPtrVec = std::vector<ParameterPtr>;
+		using StatementPtr = std::unique_ptr<Statement>;
+		using StatementPtrVec = std::vector<StatementPtr>;
+		using TemplateArgument = std::variant<IdentifierPtr, IntegerPtr>;
+		using TemplateArgumentVec = std::vector<TemplateArgument>;
+		using TemplateParameterPtr = std::unique_ptr<TemplateParameter>;
+		using TemplateParameterPtrVec = std::vector<TemplateParameterPtr>;
+
+		using ArgumentVec = ExpressionPtrVec;
 
 		struct Position {
 			llvm::StringRef filename;
@@ -111,6 +133,7 @@ namespace tvl {
 
 			STATEMENTS_END,
 
+			TemplateParameterNode,
 			FunctionNode,
 			ModuleNode,
 			ParameterNode,
@@ -141,9 +164,6 @@ namespace tvl {
 			}
 		};
 
-		/// A block-list of statement.
-		using StatementList = std::vector<std::unique_ptr<Statement>>;
-
 		class Expression : public Statement {
 		public:
 			Expression(NodeType type, Location loc) : Statement{type, loc}, emittingLangType{unknown} {}
@@ -164,60 +184,62 @@ namespace tvl {
 
 		class Array : public Expression {
 		public:
-			Array(std::vector<std::unique_ptr<Expression>> elements, Location loc)
+			Array(ExpressionPtrVec elements, Location loc)
 					: Expression{ArrayNode, loc}, elements{std::move(elements)} {}
 
-			const std::vector<std::unique_ptr<Expression>>& getElements() const { return elements; }
+			const ExpressionPtrVec& getElements() const { return elements; }
 
 			static bool classof(const Node* node) { return node->getType() == ArrayNode; }
 
 		private:
-			std::vector<std::unique_ptr<Expression>> elements;
+			ExpressionPtrVec elements;
 		};
 
 		class ArrayIndexing : public Expression {
 		public:
-			ArrayIndexing(std::unique_ptr<Expression> array, std::unique_ptr<Expression> index, Location loc)
+			ArrayIndexing(ExpressionPtr array, ExpressionPtr index, Location loc)
 					: Expression{ArrayIndexingNode, loc}, array{std::move(array)}, index{std::move(index)} {}
 
-			const std::unique_ptr<Expression>& getArray() const { return array; }
-			const std::unique_ptr<Expression>& getIndex() const { return index; }
+			const ExpressionPtr& getArray() const { return array; }
+			const ExpressionPtr& getIndex() const { return index; }
 
 			static bool classof(const Node* node) { return node->getType() == ArrayIndexingNode; }
 
 		private:
-			std::unique_ptr<Expression> array;
-			std::unique_ptr<Expression> index;
+			ExpressionPtr array;
+			ExpressionPtr index;
 		};
 
 		class Assignment : public Expression {
 		public:
-			Assignment(std::unique_ptr<Expression> place, std::unique_ptr<Expression> value, Location loc)
+			Assignment(ExpressionPtr place, ExpressionPtr value, Location loc)
 					: Expression{AssignmentNode, loc}, place{std::move(place)}, value{std::move(value)} {}
 
-			const std::unique_ptr<Expression>& getPlace() const { return place; }
-			const std::unique_ptr<Expression>& getValue() const { return value; }
+			const ExpressionPtr& getPlace() const { return place; }
+			const ExpressionPtr& getValue() const { return value; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == AssignmentNode; }
 
 		private:
-			std::unique_ptr<Expression> place;
-			std::unique_ptr<Expression> value;
+			ExpressionPtr place;
+			ExpressionPtr value;
 		};
 
 		class Integer : public Expression {
 		public:
-			Integer(uint64_t value, Location loc)
-					: Expression{IntegerNode, integerType, loc}, value{value} {}
+			Integer(llvm::APInt value, TypeType type, Location loc)
+					: Expression{IntegerNode, LangType{type}, loc}, value{std::move(value)} {}
 
-			uint64_t getValue() const { return value; }
+			uint64_t getValue() const { return value.getZExtValue(); }
+			int64_t getAsSigned() const { return value.getSExtValue(); }
+			uint64_t getAsUnsigned() const { return value.getZExtValue(); }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == IntegerNode; }
 
 		private:
-			uint64_t value;
+			llvm::APInt value;
 		};
 
 		class Identifier : public Expression {
@@ -236,18 +258,18 @@ namespace tvl {
 
 		class Range : public Expression {
 		public:
-			Range(std::unique_ptr<Expression> start, std::unique_ptr<Expression> end, Location loc)
+			Range(ExpressionPtr start, ExpressionPtr end, Location loc)
 					: Expression{RangeNode, rangeType, loc}, start{std::move(start)}, end{std::move(end)} {}
 
-			const std::unique_ptr<Expression>& getBegin() const { return start; }
-			const std::unique_ptr<Expression>& getEnd() const { return end; }
+			const ExpressionPtr& getBegin() const { return start; }
+			const ExpressionPtr& getEnd() const { return end; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == RangeNode; }
 
 		private:
-			std::unique_ptr<Expression> start;
-			std::unique_ptr<Expression> end;
+			ExpressionPtr start;
+			ExpressionPtr end;
 		};
 
 		class Parameter : public Node {
@@ -266,41 +288,64 @@ namespace tvl {
 			std::string name;
 		};
 
+		class TemplateParameter : public Node {
+		public:
+			explicit TemplateParameter(std::string typeIdentifier, Location loc)
+					: Node{TemplateParameterNode, loc}, identifier{std::move(typeIdentifier)} {}
+			TemplateParameter(std::string valueIdentifier, LangType valueType, Location loc)
+					: Node{TemplateParameterNode, loc}, identifier{std::move(valueIdentifier)},
+					valueType{std::move(valueType)} {}
+
+			const std::string& getIdentifier() const { return identifier; }
+			const LangType& getValueType() const { return valueType; }
+			bool isTypeParameter() const { return valueType == unknown; }
+			bool isValueParameter() const { return !isTypeParameter(); }
+
+			/// LLVM style RTTI
+			static bool classof(const Node* node) { return node->getType() == TemplateParameterNode; }
+
+		private:
+			const std::string identifier;
+			const LangType valueType;
+		};
+
 		class Function : public Node {
 		public:
-			Function(std::string identifier, std::vector<std::unique_ptr<Parameter>> parameters,
-					std::vector<std::unique_ptr<Statement>> body, Location loc)
+			Function(std::string identifier, ParameterPtrVec parameters, StatementPtrVec body, Location loc)
 					: Node{FunctionNode, loc}, identifier{std::move(identifier)},
 					parameters{std::move(parameters)}, body{std::move(body)} {}
 
 			const std::string& getIdentifier() const { return identifier; }
-			const std::vector<std::unique_ptr<Parameter>>& getParameters() const { return parameters; }
-			const std::vector<std::unique_ptr<Statement>>& getBody() const { return body; }
+			const ParameterPtrVec& getParameters() const { return parameters; }
+			const StatementPtrVec& getBody() const { return body; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == FunctionNode; }
 
 		private:
 			const std::string identifier;
-			const std::vector<std::unique_ptr<Parameter>> parameters;
-			const std::vector<std::unique_ptr<Statement>> body;
+			const ParameterPtrVec parameters;
+			const StatementPtrVec body;
 		};
 
 		class FunctionCall : public Expression {
 		public:
-			FunctionCall(std::string callee, std::vector<std::unique_ptr<Expression>> arguments, Location loc)
+			FunctionCall(std::string callee, TemplateArgumentVec templateArguments, ArgumentVec arguments, Location loc)
 					: Expression{FunctionCallNode, loc}, callee{std::move(callee)},
-					arguments{std::move(arguments)} {}
+					templateArguments{std::move(templateArguments)}, arguments{std::move(arguments)} {}
 
 			const std::string& getCallee() const { return callee; }
-			const std::vector<std::unique_ptr<Expression>>& getArguments() const { return arguments; }
+			const TemplateArgumentVec& getTemplateArguments() const { return templateArguments; }
+			const TemplateArgument& getTemplateArgument(size_t i) const { return templateArguments.at(i); }
+			const ArgumentVec& getArguments() const { return arguments; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == FunctionCallNode; }
 
 		private:
 			const std::string callee;
-			const std::vector<std::unique_ptr<Expression>> arguments;
+			const TemplateArgumentVec templateArguments;
+			const ArgumentVec arguments;
 		};
 
 		class BinaryOperator : public Expression {
@@ -313,37 +358,37 @@ namespace tvl {
 				Remainder,
 			};
 
-			BinaryOperator(Type operatorType, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs,
-					Location loc)
+			BinaryOperator(Type operatorType, ExpressionPtr lhs, ExpressionPtr rhs, Location loc)
 					: Expression{BinaryOperatorNode, numberType, loc}, operatorType{operatorType}, lhs{std::move(lhs)},
 					rhs{std::move(rhs)} {}
 
 			Type getOperatorType() const { return operatorType; }
-			const std::unique_ptr<Expression>& getLhs() const { return lhs; }
-			const std::unique_ptr<Expression>& getRhs() const { return rhs; }
+			const ExpressionPtr& getLhs() const { return lhs; }
+			const ExpressionPtr& getRhs() const { return rhs; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == BinaryOperatorNode; }
 
 		private:
 			const Type operatorType;
-			const std::unique_ptr<Expression> lhs;
-			const std::unique_ptr<Expression> rhs;
+			const ExpressionPtr lhs;
+			const ExpressionPtr rhs;
 		};
 
 		class Declaration : public Statement {
 		public:
-			Declaration(std::string name, std::unique_ptr<Expression> expression, NodeType type, Location loc)
+			Declaration(std::string name, ExpressionPtr expression, NodeType type, Location loc)
 					: Statement{type, loc}, name{std::move(name)}, expression{std::move(expression)} {};
 
-			Declaration(const std::string& typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					NodeType type, Location loc) : Statement{type, loc}, typeIdentifier{typeIdentifier},
-					name{std::move(name)}, expression{std::move(expression)} {};
+			Declaration(const std::string& typeIdentifier, std::string name, ExpressionPtr expression, NodeType type,
+					Location loc)
+					: Statement{type, loc}, typeIdentifier{typeIdentifier}, name{std::move(name)},
+					expression{std::move(expression)} {};
 
 			const LangType& getTypeIdentifier() const { return typeIdentifier; }
 			void setTypeIdentifier(const LangType& type) { typeIdentifier = type; }
 			const std::string& getName() const { return name; }
-			const std::unique_ptr<Expression>& getExpression() const { return expression; }
+			const ExpressionPtr& getExpression() const { return expression; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) {
@@ -353,16 +398,16 @@ namespace tvl {
 		private:
 			LangType typeIdentifier;
 			const std::string name;
-			const std::unique_ptr<Expression> expression;
+			const ExpressionPtr expression;
 		};
 
 		class ConstDeclaration : public Declaration {
 		public:
-			ConstDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+			ConstDeclaration(std::string name, ExpressionPtr expression, Location loc)
 					: Declaration{std::move(name), std::move(expression), ConstDeclarationNode, loc} {};
 
-			ConstDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
+			ConstDeclaration(std::string typeIdentifier, std::string name, ExpressionPtr expression, Location loc)
+					: Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					ConstDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
@@ -371,11 +416,11 @@ namespace tvl {
 
 		class LetDeclaration : public Declaration {
 		public:
-			LetDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+			LetDeclaration(std::string name, ExpressionPtr expression, Location loc)
 					: Declaration{std::move(name), std::move(expression), LetDeclarationNode, loc} {};
 
-			LetDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
+			LetDeclaration(std::string typeIdentifier, std::string name, ExpressionPtr expression, Location loc)
+					: Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					LetDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
@@ -384,11 +429,11 @@ namespace tvl {
 
 		class LetMutDeclaration : public Declaration {
 		public:
-			LetMutDeclaration(std::string name, std::unique_ptr<Expression> expression, Location loc)
+			LetMutDeclaration(std::string name, ExpressionPtr expression, Location loc)
 					: Declaration{std::move(name), std::move(expression), LetMutDeclarationNode, loc} {};
 
-			LetMutDeclaration(std::string typeIdentifier, std::string name, std::unique_ptr<Expression> expression,
-					Location loc) : Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
+			LetMutDeclaration(std::string typeIdentifier, std::string name, ExpressionPtr expression, Location loc)
+					: Declaration{std::move(typeIdentifier), std::move(name), std::move(expression),
 					LetMutDeclarationNode, loc} {};
 
 			/// LLVM style RTTI
@@ -397,33 +442,33 @@ namespace tvl {
 
 		class ForLoop : public Statement {
 		public:
-			ForLoop(std::string loopVariable, std::unique_ptr<Expression> iterable, StatementList body, Location loc)
-					: Statement{ForLoopNode, loc}, loopVariable{std::move(loopVariable)},
-					iterable{std::move(iterable)}, body{std::move(body)} {}
+			ForLoop(std::string loopVariable, ExpressionPtr iterable, StatementPtrVec body, Location loc)
+					: Statement{ForLoopNode, loc}, loopVariable{std::move(loopVariable)}, iterable{std::move(iterable)},
+					body{std::move(body)} {}
 
 			const std::string& getLoopVariable() const { return loopVariable; }
-			const std::unique_ptr<Expression>& getIterable() const { return iterable; }
-			const StatementList& getBody() const { return body; }
+			const ExpressionPtr& getIterable() const { return iterable; }
+			const StatementPtrVec& getBody() const { return body; }
 
 			/// LLVM style RTTI
 			static bool classof(const Node* node) { return node->getType() == ForLoopNode; }
 
 		private:
 			std::string loopVariable;
-			std::unique_ptr<Expression> iterable;
-			StatementList body;
+			ExpressionPtr iterable;
+			StatementPtrVec body;
 		};
 
 		class Module : public Node {
 		private:
-			std::vector<std::unique_ptr<Function>> functions;
+			FunctionPtrVec functions;
 
 		public:
 			explicit Module(Location loc)
 					: Node{ModuleNode, loc} {}
 
-			void addFunction(std::unique_ptr<Function> function) { functions.push_back(std::move(function)); }
-			const std::vector<std::unique_ptr<Function>>& getFunctions() const { return functions; }
+			void addFunction(FunctionPtr function) { functions.push_back(std::move(function)); }
+			const FunctionPtrVec& getFunctions() const { return functions; }
 			auto begin() const -> decltype(functions.begin()) { return functions.begin(); }
 			auto end() const -> decltype(functions.end()) { return functions.end(); }
 

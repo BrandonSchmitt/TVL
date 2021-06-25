@@ -104,7 +104,7 @@ namespace {
 		mlir::Value mlirGen(const ast::Array& node) {
 			auto location = loc(node.getLocation());
 
-			auto integerType = builder.getI64Type();
+			auto integerType = getMlirType(node.getEmittingLangType().baseType);
 			auto arrayLength = node.getElements().size();
 			std::vector<int64_t> shape{static_cast<int64_t>(arrayLength)};
 			auto memRefType = mlir::MemRefType::get(shape, integerType);
@@ -539,21 +539,19 @@ namespace {
 		}
 
 		mlir::Value mlirGenVectorBroadcast(const ast::FunctionCall& call) {
-			if (call.getArguments().size() != 2) {
+			if (call.getTemplateArguments().size() != 1 || call.getArguments().size() != 1) {
 				return nullptr;
 			}
+
 			auto value = mlirGen(*call.getArguments().front());
 			if (!value) {
 				return nullptr;
 			}
 
-			auto repetitions = dyn_cast<ast::Integer>(call.getArguments().back().get());
-			if (repetitions == nullptr) {
-				return nullptr;
-			}
+			auto length = std::get<ast::IntegerPtr>(call.getTemplateArgument(0))->getValue();
 
 			return builder.create<VectorBroadcastOp>(loc(call.getLocation()),
-					mlir::VectorType::get(repetitions->getValue(), value.getType()), value);
+					mlir::VectorType::get(length, value.getType()), value);
 		}
 
 		mlir::LogicalResult mlirGenVectorCompressStore(const ast::FunctionCall& call) {
@@ -679,7 +677,7 @@ namespace {
 		}
 
 		mlir::Value mlirGenVectorSeq(const ast::FunctionCall& call) {
-			if (call.getArguments().size() != 2) {
+			if (call.getTemplateArguments().size() != 1 || call.getArguments().size() != 1) {
 				return nullptr;
 			}
 
@@ -688,14 +686,9 @@ namespace {
 				return nullptr;
 			}
 
-			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
-			if (length == nullptr) {
-				return nullptr;
-			}
+			auto length = std::get<ast::IntegerPtr>(call.getTemplateArgument(0))->getValue();
 
-			auto lengthMlirValue = mlirGen(*length);
-
-			return builder.create<VectorSequenceOp>(loc(call.getLocation()), mlir::VectorType::get(length->getValue(), offset.getType()), offset, lengthMlirValue);
+			return builder.create<VectorSequenceOp>(loc(call.getLocation()), mlir::VectorType::get(length, offset.getType()), offset);
 		}
 
 		/// This is a reference to a variable in an expression. The variable is expected to have been declared and so
@@ -713,20 +706,32 @@ namespace {
 		mlir::Value mlirGen(const ast::Integer& num) {
 			mlir::Attribute attribute;
 			switch (num.getEmittingLangType().baseType) {
+				case i64:
+					attribute = builder.getI64IntegerAttr(num.getAsSigned());
+					break;
 				case u64:
-					attribute = builder.getI64IntegerAttr(num.getValue());
+					attribute = builder.getI64IntegerAttr(num.getAsUnsigned());
+					break;
+				case i32:
+					attribute = builder.getI32IntegerAttr(num.getAsSigned());
 					break;
 				case u32:
-					attribute = builder.getI32IntegerAttr(num.getValue());
+					attribute = builder.getI32IntegerAttr(num.getAsUnsigned());
+					break;
+				case i16:
+					attribute = builder.getI16IntegerAttr(num.getAsSigned());
 					break;
 				case u16:
-					attribute = builder.getI16IntegerAttr(num.getValue());
+					attribute = builder.getI16IntegerAttr(num.getAsUnsigned());
+					break;
+				case i8:
+					attribute = builder.getI8IntegerAttr(num.getAsSigned());
 					break;
 				case u8:
-					attribute = builder.getI8IntegerAttr(num.getValue());
+					attribute = builder.getI8IntegerAttr(num.getAsUnsigned());
 					break;
 				case usize:
-					attribute = builder.getIndexAttr(num.getValue());
+					attribute = builder.getIndexAttr(num.getAsUnsigned());
 					break;
 				case f64:
 					attribute = builder.getF64FloatAttr(num.getValue());
@@ -764,7 +769,7 @@ namespace {
 		}
 
 		/// Codegen a list of expression, return failure if one of them hit an error.
-		mlir::LogicalResult mlirGen(const ast::StatementList& blockAST) {
+		mlir::LogicalResult mlirGen(const ast::StatementPtrVec& blockAST) {
 			ScopedHashTableScope<StringRef, mlir::Value> var_scope(symbolTable);
 			for (auto& stmt : blockAST) {
 				// Specific handling for variable declarations, return statement, and print. These can only appear in
@@ -802,6 +807,44 @@ namespace {
 				}
 			}
 			return mlir::success();
+		}
+
+		mlir::Type getMlirType(const TypeType& type) {
+			switch (type) {
+				case i64:
+				case u64:
+					return builder.getI64Type();
+				case i32:
+				case u32:
+					return builder.getI32Type();
+				case i16:
+				case u16:
+					return builder.getIntegerType(16);
+				case i8:
+				case u8:
+					return builder.getIntegerType(8);
+				case usize:
+					return builder.getIndexType();
+				case f64:
+					return builder.getF64Type();
+				case f32:
+					return builder.getF32Type();
+				case boolean:
+					return builder.getI1Type();
+
+				case unknown:
+				case number:
+				case integer:
+				case floatingPoint:
+				case array:
+				case void_:
+				case vec:
+				case mask:
+				case range:
+				case callable:
+					assert(false && "type not supported");
+					return builder.getNoneType();
+			}
 		}
 	};
 

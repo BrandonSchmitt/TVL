@@ -21,24 +21,28 @@ using VariableSourceVector = llvm::SmallVector<Statement*, 4>;
 namespace {
 	class StdLibFunction : public Node {
 	public:
-		explicit StdLibFunction(llvm::StringRef name, std::vector<LangType> parameterTypes)
-				: Node{FunctionNode, Location()}, name{name}, parameterTypes{std::move(parameterTypes)} {
-			fqn = name.str();
-			for (auto& parameterType : parameterTypes) {
-				fqn += "_" + parameterType.describe();
-			}
-		}
-		llvm::StringRef getFQN() const { return fqn; }
+		StdLibFunction(llvm::StringRef name, std::vector<LangType> parameterTypes)
+				: Node{FunctionNode, Location()}, name{name}, parameterTypes{std::move(parameterTypes)} {}
+
+		StdLibFunction(llvm::StringRef name, std::vector<TemplateParameter> templateParameters,
+				std::vector<LangType> parameterTypes)
+				: Node{FunctionNode, Location()}, name{name}, templateParameters{templateParameters},
+				parameterTypes{std::move(parameterTypes)} {}
+
 		llvm::StringRef getName() const { return name; }
 		LangType const& returnType() const { return parameterTypes[0]; }
-		size_t numArguments() const { return parameterTypes.size() - 1; }
-		LangType const& argument(size_t i) const { return parameterTypes.at(i + 1); }
+		size_t numTemplateParameters() const { return templateParameters.size(); }
+		TemplateParameter const& templateParameter(size_t i) const { return templateParameters.at(i); }
+		size_t numParameters() const { return parameterTypes.size() - 1; }
+		LangType const& parameter(size_t i) const { return parameterTypes.at(i + 1); }
 
 	private:
 		llvm::StringRef name;
-		std::string fqn;
+		std::vector<TemplateParameter> templateParameters;
 		std::vector<LangType> parameterTypes;
 	};
+
+	using TemplateInstantiation = std::variant<LangType, size_t>;
 
 
 	class TypeInference {
@@ -50,54 +54,279 @@ namespace {
 			// Make c std functions known
 			// parameters types are in the default ordering with the result type on position 0 and the first parameter
 			// at index 1 and so on.
+			auto print_u8 = StdLibFunction("print", {voidType, u8Type});
+			auto print_u16 = StdLibFunction("print", {voidType, u16Type});
+			auto print_u32 = StdLibFunction("print", {voidType, u32Type});
 			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
 			auto print_usize = StdLibFunction("print", {voidType, usizeType});
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
-			auto vecAdd = StdLibFunction("vecAdd", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecBroadcast = StdLibFunction("vecBroadcast", {LangType{vec}, u64Type, usizeType});
-			auto vecCompressStore = StdLibFunction("vecCompressStore", {voidType, LangType{vec}, LangType{mask}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}});
-			auto vecDiv = StdLibFunction("vecDiv", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecExtractElement = StdLibFunction("vecExtractElement", {unknownType, LangType{vec}, u64Type});
-			auto vecLoad = StdLibFunction("vecLoad", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, usizeType});
-			auto vecHAdd = StdLibFunction("vecHAdd", {u64Type, LangType{vec}});
-			auto vecStore = StdLibFunction("vecStore", {voidType, LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}});
-			auto vecGather = StdLibFunction("vecGather", {LangType{vec}, LangType{number, llvm::SmallVector<int64_t, 2>{0}}, LangType{vec}});
-			auto vecMul = StdLibFunction("vecMul", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecRem = StdLibFunction("vecRem", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecSeq = StdLibFunction("vecSeq", {LangType{vec}, u64Type, usizeType});
-			auto vecSub = StdLibFunction("vecSub", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecAdd = StdLibFunction("vecAdd",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecBroadcast = StdLibFunction("vecBroadcast",
+					{
+							TemplateParameter{"N", usizeType, Location()},
+					},
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getTemplateVariableType("T", number),
+					}
+			);
+			auto vecCompressStore = StdLibFunction("vecCompressStore",
+					{
+							voidType,
+							LangType::getVectorType("T", "N"),
+							LangType::getMaskType("N"),
+							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+					}
+			);
+			auto vecDiv = StdLibFunction("vecDiv",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecExtractElement = StdLibFunction("vecExtractElement",
+					{
+							LangType::getTemplateVariableType("T"),
+							LangType::getVectorType("T", "N"),
+							usizeType,
+					}
+			);
+			auto vecLoad = StdLibFunction("vecLoad",
+					{
+							TemplateParameter{"N", usizeType, Location()},
+					},
+					{
+							LangType::getVectorType("T", "N"),
+							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+					}
+			);
+			auto vecHAdd = StdLibFunction("vecHAdd",
+					{
+							LangType::getTemplateVariableType("T", number),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecStore = StdLibFunction("vecStore",
+					{
+							voidType,
+							LangType::getVectorType("T", "N"),
+							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+					}
+			);
+			auto vecGather = StdLibFunction("vecGather",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+							LangType::getVectorType("R", "N"),
+					}
+			);
+			auto vecMul = StdLibFunction("vecMul",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecRem = StdLibFunction("vecRem",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecSeq = StdLibFunction("vecSeq",
+					{
+							TemplateParameter{"N", usizeType, Location()},
+					},
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getTemplateVariableType("T", number),
+					}
+			);
+			auto vecSub = StdLibFunction("vecSub",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
 
-			auto vecAnd = StdLibFunction("vecAnd", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecOr = StdLibFunction("vecOr", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecXOr = StdLibFunction("vecXOr", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecAnd = StdLibFunction("vecAnd",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecOr = StdLibFunction("vecOr",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecXOr = StdLibFunction("vecXOr",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
 
-			auto vecMin = StdLibFunction("vecMin", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecMax = StdLibFunction("vecMax", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecMin = StdLibFunction("vecMin",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecMax = StdLibFunction("vecMax",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
 
-			auto vecShiftLeft = StdLibFunction("vecShiftLeft", {LangType{vec}, LangType{vec}, u64Type});
-			auto vecShiftLeftIndividual = StdLibFunction("vecShiftLeftIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecShiftRightUnsigned = StdLibFunction("vecShiftLeft", {LangType{vec}, LangType{vec}, u64Type});
-			auto vecShiftRightUnsignedIndividual = StdLibFunction("vecShiftRightUnsignedIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
-			auto vecShiftRightSigned = StdLibFunction("vecShiftRightSigned", {LangType{vec}, LangType{vec}, u64Type});
-			auto vecShiftRightSignedIndividual = StdLibFunction("vecShiftRightSignedIndividual", {LangType{vec}, LangType{vec}, LangType{vec}});
+			auto vecShiftLeft = StdLibFunction("vecShiftLeft",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							u64Type,
+					}
+			);
+			auto vecShiftLeftIndividual = StdLibFunction("vecShiftLeftIndividual",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("R", "N"),
+					}
+			);
+			auto vecShiftRightUnsigned = StdLibFunction("vecShiftRight",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							u64Type,
+					}
+			);
+			auto vecShiftRightUnsignedIndividual = StdLibFunction("vecShiftRightIndividual",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("R", "N"),
+					}
+			);
+			auto vecShiftRightSigned = StdLibFunction("vecShiftRightSigned",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							u64Type,
+					}
+			);
+			auto vecShiftRightSignedIndividual = StdLibFunction("vecShiftRightSignedIndividual",
+					{
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("R", "N"),
+					}
+			);
 
-			auto vecEq = StdLibFunction("vecEq", {LangType{mask}, LangType{vec}, LangType{vec}});
-			auto vecNe = StdLibFunction("vecNe", {LangType{mask}, LangType{vec}, LangType{vec}});
-			auto vecGe = StdLibFunction("vecGe", {LangType{mask}, LangType{vec}, LangType{vec}});
-			auto vecGt = StdLibFunction("vecGt", {LangType{mask}, LangType{vec}, LangType{vec}});
-			auto vecLe = StdLibFunction("vecLe", {LangType{mask}, LangType{vec}, LangType{vec}});
-			auto vecLt = StdLibFunction("vecLt", {LangType{mask}, LangType{vec}, LangType{vec}});
+			auto vecEq = StdLibFunction("vecEq",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecNe = StdLibFunction("vecNe",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecGe = StdLibFunction("vecGe",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecGt = StdLibFunction("vecGt",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecLe = StdLibFunction("vecLe",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
+			auto vecLt = StdLibFunction("vecLt",
+					{
+							LangType::getMaskType("N"),
+							LangType::getVectorType("T", "N"),
+							LangType::getVectorType("T", "N"),
+					}
+			);
 
-			auto maskInit = StdLibFunction("maskInit", {LangType{mask}, usizeType});
-			auto maskAnd = StdLibFunction("maskAnd", {LangType{mask}, LangType{mask}, LangType{mask}});
-			auto maskOr = StdLibFunction("maskOr", {LangType{mask}, LangType{mask}, LangType{mask}});
-			auto maskXOr = StdLibFunction("maskXOr", {LangType{mask}, LangType{mask}, LangType{mask}});
-			auto maskCountTrue = StdLibFunction("maskCountTrue", {usizeType, LangType{mask}});
-			auto maskCountFalse = StdLibFunction("maskCountFalse", {usizeType, LangType{mask}});
+			auto maskInit = StdLibFunction("maskInit",
+					{
+							TemplateParameter{"N", usizeType, Location()},
+					},
+					{
+							LangType{mask},
+					}
+			);
+			auto maskAnd = StdLibFunction("maskAnd",
+					{
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+					}
+			);
+			auto maskOr = StdLibFunction("maskOr",
+					{
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+					}
+			);
+			auto maskXOr = StdLibFunction("maskXOr",
+					{
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+							LangType::getMaskType("N"),
+					}
+			);
+			auto maskCountTrue = StdLibFunction("maskCountTrue",
+					{
+							usizeType,
+							LangType::getMaskType("N"),
+					}
+			);
+			auto maskCountFalse = StdLibFunction("maskCountFalse",
+					{
+							usizeType,
+							LangType::getMaskType("N"),
+					}
+			);
 
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
-			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>({&print_u64, &print_usize})});
+			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>(
+					{&print_u8, &print_u16, &print_u32, &print_u64, &print_usize})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
 			stdLibFunctions.insert({"vecAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecAdd})});
@@ -122,11 +351,16 @@ namespace {
 			stdLibFunctions.insert({"vecMax", llvm::SmallVector<StdLibFunction*, 4>({&vecMax})});
 
 			stdLibFunctions.insert({"vecShiftLeft", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftLeft})});
-			stdLibFunctions.insert({"vecShiftLeftIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftLeftIndividual})});
-			stdLibFunctions.insert({"vecShiftRightUnsigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsigned})});
-			stdLibFunctions.insert({"vecShiftRightUnsignedIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsignedIndividual})});
-			stdLibFunctions.insert({"vecShiftRightSigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSigned})});
-			stdLibFunctions.insert({"vecShiftRightSignedIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSignedIndividual})});
+			stdLibFunctions.insert(
+					{"vecShiftLeftIndividual", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftLeftIndividual})});
+			stdLibFunctions.insert(
+					{"vecShiftRightUnsigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsigned})});
+			stdLibFunctions.insert({"vecShiftRightUnsignedIndividual",
+					llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightUnsignedIndividual})});
+			stdLibFunctions.insert(
+					{"vecShiftRightSigned", llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSigned})});
+			stdLibFunctions.insert({"vecShiftRightSignedIndividual",
+					llvm::SmallVector<StdLibFunction*, 4>({&vecShiftRightSignedIndividual})});
 
 			stdLibFunctions.insert({"vecEq", llvm::SmallVector<StdLibFunction*, 4>({&vecEq})});
 			stdLibFunctions.insert({"vecNe", llvm::SmallVector<StdLibFunction*, 4>({&vecNe})});
@@ -422,11 +656,11 @@ namespace {
 			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> forLoopVariableSourceScope(variableSourceTable);
 			variableSourceTable.insert(forLoop.getLoopVariable(), &forLoop);
 
-			return inferBottomUp(const_cast<StatementList&>(forLoop.getBody()));
+			return inferBottomUp(const_cast<StatementPtrVec&>(forLoop.getBody()));
 		}
 
 		bool inferBottomUp(Function& function) {
-			return inferBottomUp(const_cast<StatementList&>(function.getBody()));
+			return inferBottomUp(const_cast<StatementPtrVec&>(function.getBody()));
 		}
 
 		bool inferBottomUp(FunctionCall& functionCall) {
@@ -440,12 +674,21 @@ namespace {
 			auto filteredFunctions = std::vector<StdLibFunction*>(functionOverloads.size());
 			auto filteredFunctionsEnd = std::remove_copy_if(functionOverloads.begin(), functionOverloads.end(),
 					filteredFunctions.begin(),
-					[&](auto f) { return f->numArguments() != functionCall.getArguments().size(); });
+					[&](auto f) {
+						return f->numTemplateParameters() != functionCall.getTemplateArguments().size()
+								|| f->numParameters() != functionCall.getArguments().size();
+					});
 
 			if (filteredFunctions.begin() == filteredFunctionsEnd) {
-				llvm::errs() << "No function overload for " << callee << " takes " << functionCall.getArguments().size()
-						<< " arguments";
+				llvm::errs() << "No function overload for " << callee << " is applicable.";
 				return false;
+			}
+
+			for (size_t i = 0; i < functionCall.getTemplateArguments().size(); ++i) {
+				auto& arg = functionCall.getTemplateArgument(i);
+				if (!std::holds_alternative<IdentifierPtr>(arg)) {
+					// TODO: Check if argument is applicable
+				}
 			}
 
 			size_t argNum = 0;
@@ -456,7 +699,7 @@ namespace {
 
 				filteredFunctionsEnd = std::remove_if(filteredFunctions.begin(), filteredFunctionsEnd,
 						[&](auto f) {
-							return !LangType::compatible(f->argument(argNum), arg->getEmittingLangType());
+							return !LangType::compatible(f->parameter(argNum), arg->getEmittingLangType());
 						});
 				if (filteredFunctions.begin() == filteredFunctionsEnd) {
 					llvm::errs() << "No valid function overload found.\nArguments of requested function call:";
@@ -466,8 +709,8 @@ namespace {
 					llvm::errs() << "\nPossible functions:\n";
 					for (auto& function : functionOverloads) {
 						llvm::errs() << "- " << function->getName() << "(";
-						for (size_t i = 0, len = function->numArguments(); i < len; ++i) {
-							llvm::errs() << (i > 0 ? ", " : "") << function->argument(i);
+						for (size_t i = 0, len = function->numParameters(); i < len; ++i) {
+							llvm::errs() << (i > 0 ? ", " : "") << function->parameter(i);
 						}
 						llvm::errs() << ")";
 						if (function->returnType() != voidType) {
@@ -500,19 +743,97 @@ namespace {
 				++num;
 			}
 			if (num > 1 && usedIdentifiersWithIncompleteTypes->empty()) {
-				num = 1;	// used first prototype as default
+				num = 1;    // used first prototype as default
 			}
 			if (num == 1) {
 				auto function = **filteredFunctions.begin();
-				functionCall.setEmittingLangType(function.returnType());    // Only support void return type right now
+
+				llvm::SmallMapVector<llvm::StringRef, TemplateInstantiation, 4> templateArguments;
+				for (size_t i = 0; i < function.numTemplateParameters(); ++i) {
+					llvm::StringRef identifier = function.templateParameter(i).getIdentifier();
+					auto& argument = functionCall.getTemplateArgument(i);
+					if (std::holds_alternative<IdentifierPtr>(argument)) {
+						templateArguments.insert({identifier, LangType(std::get<IdentifierPtr>(argument)->getName())});
+					} else if (std::holds_alternative<IntegerPtr>(argument)) {
+						templateArguments.insert({identifier, std::get<IntegerPtr>(argument)->getValue()});
+					}
+				}
 
 				auto argIt = functionCall.getArguments().begin();
-				for (size_t i = 0, len = function.numArguments(); i < len; ++i) {
-					if (!inferTopDown(**argIt, function.argument(i))) {
+				for (size_t i = 0, len = function.numParameters(); i < len; ++i) {
+					auto& parameter = function.parameter(i);
+					auto& argument = **argIt;
+
+					if (!inferBottomUp(argument)) {
+						return false;
+					}
+
+					if (parameter.incomplete()) {
+						auto argumentType = argument.getEmittingLangType();
+						if (!TypeInference::inferGenerics(templateArguments, parameter, argumentType)) {
+							return false;
+						}
+					}
+
+					if (!inferTopDown(argument, parameter)) {
 						return false;
 					}
 					++argIt;
 				}
+
+				for (auto& argument : templateArguments) {
+					if (std::holds_alternative<LangType>(argument.second)) {
+						auto& type = std::get<LangType>(argument.second);
+						if (type.incomplete()) {
+							type = inferDefaults(type);
+						}
+					}
+				}
+
+				{
+					auto argIt = functionCall.getArguments().begin();
+					for (size_t i = 0, len = function.numParameters(); i < len; ++i) {
+						auto& parameter = function.parameter(i);
+						auto& argument = **argIt;
+
+						auto argumentType = argument.getEmittingLangType();
+						if (argumentType.incomplete()) {
+							if (parameter.incomplete()) {
+								if (!TypeInference::inferGenerics(templateArguments, parameter, argumentType)) {
+									return false;
+								}
+							}
+
+							if (argumentType.incomplete()) {
+								argumentType = inferDefaults(argumentType);
+							}
+
+							if (!inferTopDown(argument, argumentType)) {
+								return false;
+							}
+						}
+
+						++argIt;
+					}
+				}
+
+				auto returnType = function.returnType();
+				if (returnType.incomplete()) {
+					if (returnType.isGeneric()) {
+						returnType = std::get<LangType>(templateArguments.lookup(returnType.genericName));
+					} else if (returnType.isSequentialType()) {
+						if (returnType.elementType->isGeneric()) {
+							*returnType.elementType = std::get<LangType>(
+									templateArguments.lookup(returnType.elementType->genericName));
+						}
+						if (std::holds_alternative<llvm::StringRef>(returnType.sequentialLength)) {
+							returnType.sequentialLength = std::get<size_t>(
+									templateArguments.lookup(std::get<llvm::StringRef>(returnType.sequentialLength)));
+						}
+					}
+				}
+
+				functionCall.setEmittingLangType(returnType);
 			}
 			return true;
 		}
@@ -646,7 +967,7 @@ namespace {
 			}
 		}
 
-		bool inferBottomUp(StatementList& block) {
+		bool inferBottomUp(StatementPtrVec& block) {
 			llvm::ScopedHashTableScope<llvm::StringRef, Statement*> blockVariableSourceScope(variableSourceTable);
 			auto oldDeclarationScope = declarationsInScope;
 			declarationsInScope = std::make_shared<DeclarationVector>();
@@ -680,6 +1001,69 @@ namespace {
 				typeWithDefaults.baseType = f64;
 			}
 			return typeWithDefaults;
+		}
+
+		static bool inferGenerics(llvm::SmallMapVector<llvm::StringRef, TemplateInstantiation, 4>& templateArguments,
+				const LangType& pattern, LangType& type) {
+			if (pattern.isGeneric()) {
+				if (templateArguments.count(pattern.genericName) > 0) {
+					auto templateArgument = templateArguments.lookup(pattern.genericName);
+					if (!std::holds_alternative<LangType>(templateArgument)) {
+						llvm::errs() << std::get<size_t>(templateArgument) << " is not a type";
+						return false;
+					}
+
+					auto& templateArgumentType = std::get<LangType>(templateArgument);
+
+					if (!LangType::compatible(templateArgumentType, type)) {
+						llvm::errs() << "Multiple definitions for template parameter " << pattern.genericName << ": "
+								<< templateArgumentType << ", " << type;
+						return false;
+					}
+
+					type = LangType::intersect(templateArgumentType, type);
+					templateArguments.insert({pattern.genericName, type});
+					return true;
+				} else {
+					templateArguments.insert({pattern.genericName, type});
+					return true;
+				}
+			} else if (pattern.isSequentialType()) {
+				if (type.baseType != pattern.baseType) {
+					return false;
+				}
+
+				if (!inferGenerics(templateArguments, *pattern.elementType, *type.elementType)) {
+					return false;
+				}
+
+				if (std::holds_alternative<llvm::StringRef>(pattern.sequentialLength)) {
+					auto sequentialLengthName = std::get<llvm::StringRef>(pattern.sequentialLength);
+					if (templateArguments.count(sequentialLengthName) > 0) {
+						auto templateArgument = templateArguments.lookup(sequentialLengthName);
+						if (!std::holds_alternative<size_t>(templateArgument)) {
+							llvm::errs() << sequentialLengthName
+									<< " should describe an integer but it already is set to "
+									<< std::get<LangType>(templateArgument);
+							return false;
+						}
+
+						auto templateArgumentValue = std::get<size_t>(templateArgument);
+						if (std::get<size_t>(type.sequentialLength) != templateArgumentValue) {
+							llvm::errs() << "Multiple definitions for template parameter " << sequentialLengthName
+									<< ": "
+									<< templateArgumentValue << ", " << std::get<size_t>(type.sequentialLength);
+							return false;
+						}
+					} else {
+						auto typeSequentialLength = std::get<size_t>(type.sequentialLength);
+						templateArguments.insert({sequentialLengthName, typeSequentialLength});
+					}
+				}
+				return true;
+			} else {
+				return true;
+			}
 		}
 	};
 }

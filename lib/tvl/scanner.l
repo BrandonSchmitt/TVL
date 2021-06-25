@@ -61,6 +61,8 @@ blank [ \t\r]
 "/"                         { return Parser::make_SLASH(loc); }
 "%"                         { return Parser::make_PERCENT(loc); }
 "="                         { return Parser::make_EQUAL(loc); }
+">"                         { return Parser::make_GT(loc); }
+"<"                         { return Parser::make_LT(loc); }
 ".."                        { return Parser::make_DOTDOT(loc); }
 "const"                     { return Parser::make_CONST(loc); }
 "fn"                        { return Parser::make_FN(loc); }
@@ -69,7 +71,7 @@ blank [ \t\r]
 "let"                       { return Parser::make_LET(loc); }
 "mut"                       { return Parser::make_MUT(loc); }
 {digit}+\.{digit}+          { return make_FLOATING_POINT(parser, yytext, loc); }
-{digit}+                    { return make_INTEGER(parser, yytext, loc); }
+{digit}+([iu](8|16|32|64)|usize)?   { return make_INTEGER(parser, yytext, loc); }
 {alpha}({alpha}|{digit})*   { return Parser::make_IDENTIFIER(yytext, loc); }
 .                           { parser->error(Parser::syntax_error(loc, "invalid character: " + std::string(yytext))); }
 %%
@@ -77,12 +79,25 @@ blank [ \t\r]
 YY_BUFFER_STATE tvl_yy_buffer_state;
 
 Parser::symbol_type make_INTEGER(Parser* parser, llvm::StringRef string, const Parser::location_type& location) {
-    static_assert(sizeof(unsigned long) == 8, "unsigned long is not the correct type for unsigned 64-bit integers");
-    unsigned long number = strtoul(string.begin(), nullptr, 0);
-    if (number == ULONG_MAX && errno == ERANGE) {
-		parser->error(Parser::syntax_error(location, "Integer is out of range: " + string.str()));
+    TypeType type = integer;
+
+    if (string.consume_back("i8")) { type = i8; }
+    else if (string.consume_back("i16")) { type = i16; }
+    else if (string.consume_back("i32")) { type = i32; }
+    else if (string.consume_back("i64")) { type = i64; }
+    else if (string.consume_back("u8")) { type = u8; }
+    else if (string.consume_back("u16")) { type = u16; }
+    else if (string.consume_back("u32")) { type = u32; }
+    else if (string.consume_back("u64")) { type = u64; }
+    else if (string.consume_back("usize")) { type = usize; }
+
+    llvm::APInt number;
+    if (string.getAsInteger(0, number)) {
+        // The string does not solely consist of a valid non-empty number in the appropriate base.
+        // This should never be the case as the regex does not match in those cases
+        parser->error(Parser::syntax_error(location, "Unknown error parsing integer " + string.str()));
     }
-	return Parser::make_INTEGER(number, location);
+	return Parser::make_INTEGER(std::make_pair(number, type), location);
 }
 
 Parser::symbol_type make_FLOATING_POINT(Parser* parser, llvm::StringRef string, const Parser::location_type& location) {

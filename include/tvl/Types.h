@@ -1,6 +1,8 @@
 #ifndef TVL_DIALECT_TYPES_H
 #define TVL_DIALECT_TYPES_H
 
+#include <variant>
+
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -11,6 +13,10 @@ namespace tvl {
 		unknown,
 		number,
 		integer,
+		i8,
+		i16,
+		i32,
+		i64,
 		u8,
 		u16,
 		u32,
@@ -19,22 +25,30 @@ namespace tvl {
 		floatingPoint,
 		f32,
 		f64,
-		array,
+		boolean,
 		void_,
+		array,
 		vec,
 		mask,
 		range,
 		callable,
 
 		NUMBERS_BEGIN = number,
-		NUMBERS_END = array,
+		NUMBERS_END = boolean,
 		INTEGERS_BEGIN = integer,
 		INTEGERS_END = floatingPoint,
 		FLOATS_BEGIN = floatingPoint,
-		FLOATS_END = array,
+		FLOATS_END = boolean,
 	};
 
 	struct LangType {
+		TypeType baseType;
+		llvm::SmallVector<int64_t, 2> shape;
+		llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes;
+		std::shared_ptr<LangType> elementType;
+		std::variant<size_t, llvm::StringRef> sequentialLength;    // Either specified length or template variable
+		llvm::StringRef genericName;
+
 		LangType() : baseType{unknown} {}
 		explicit LangType(TypeType baseType) : baseType{baseType} {}
 		LangType(TypeType baseType, llvm::SmallVector<int64_t, 2> shape) : baseType{baseType},
@@ -74,19 +88,77 @@ namespace tvl {
 			}
 		}
 
-		bool operator==(const LangType& other) const { return baseType == other.baseType && shape == other.shape; }
+		static LangType getArrayType(llvm::StringRef elementTypeTemplateVar, llvm::StringRef arrayLengthTemplateVar) {
+			LangType type{array};
+			type.elementType = std::make_shared<LangType>(getTemplateVariableType(elementTypeTemplateVar));
+			type.sequentialLength = arrayLengthTemplateVar;
+			return type;
+		}
+
+		static LangType getVectorType(const LangType& elementType, size_t sequentialLength) {
+			LangType type{vec};
+			type.elementType = std::make_shared<LangType>(elementType);
+			type.sequentialLength = sequentialLength;
+			return type;
+		}
+
+		static LangType getVectorType(const LangType& elementType, llvm::StringRef sequentialLengthTemplateVariable) {
+			LangType type{vec};
+			type.elementType = std::make_shared<LangType>(elementType);
+			type.sequentialLength = sequentialLengthTemplateVariable;
+			return type;
+		}
+
+		static LangType
+		getVectorType(llvm::StringRef elementTypeTemplateVariable, llvm::StringRef sequentialLengthTemplateVariable) {
+			LangType type{vec};
+			type.elementType = std::make_shared<LangType>(getTemplateVariableType(elementTypeTemplateVariable));
+			type.sequentialLength = sequentialLengthTemplateVariable;
+			return type;
+		}
+
+		static LangType getMaskType(llvm::StringRef sequentialLengthTemplateVariable) {
+			LangType type{mask};
+			type.elementType = std::make_shared<LangType>(boolean);
+			type.sequentialLength = sequentialLengthTemplateVariable;
+			return type;
+		}
+
+		static LangType getTemplateVariableType(llvm::StringRef name, TypeType baseType = unknown) {
+			LangType type{baseType};
+			type.genericName = name;
+			return type;
+		}
+
+		bool operator==(const LangType& other) const {
+			return baseType == other.baseType
+					&& shape == other.shape
+					&& parameterTypes == other.parameterTypes
+					&& elementType == other.elementType
+					&& sequentialLength == other.sequentialLength
+					&& genericName == other.genericName;
+		}
 		bool operator==(TypeType other) const { return baseType == other && shape.empty(); }
 		bool operator!=(const LangType& other) const { return !(*this == other); }
 
+		bool isSequentialType() const { return baseType == array || baseType == vec || baseType == mask; }
+
+		bool isGeneric() const { return !genericName.empty(); }
+
 		bool incomplete() const {
-			return baseType == unknown || baseType == number || baseType == integer || baseType == floatingPoint;
+			return baseType == unknown || baseType == number || baseType == integer || baseType == floatingPoint ||
+					isGeneric() || (isSequentialType() &&
+					(elementType->incomplete() || std::holds_alternative<llvm::StringRef>(sequentialLength)));
 		}
 
 		std::string describe() const {
 			std::string result;
 			switch (baseType) {
 				case array:
-					result = "array";
+					result = elementType->describe() + "[" +
+							(std::holds_alternative<size_t>(sequentialLength) ? std::to_string(
+									std::get<size_t>(sequentialLength)) : std::get<llvm::StringRef>(
+									sequentialLength).str()) + "]";
 					break;
 				case callable:
 					result = "callable";
@@ -111,6 +183,18 @@ namespace tvl {
 				case number:
 					result = "number";
 					break;
+				case i8:
+					result = "i8";
+					break;
+				case i16:
+					result = "i16";
+					break;
+				case i32:
+					result = "i32";
+					break;
+				case i64:
+					result = "i64";
+					break;
 				case u8:
 					result = "u8";
 					break;
@@ -130,16 +214,24 @@ namespace tvl {
 					result = "usize";
 					break;
 				case vec:
-					result = "vec";
+					result = "vec<" + elementType->describe() + ", " +
+							(std::holds_alternative<size_t>(sequentialLength) ? std::to_string(
+									std::get<size_t>(sequentialLength)) : std::get<llvm::StringRef>(
+									sequentialLength).str()) + ">";
 					break;
 				case mask:
-					result = "mask";
+					result = "mask<" + (std::holds_alternative<size_t>(sequentialLength) ? std::to_string(
+							std::get<size_t>(sequentialLength)) : std::get<llvm::StringRef>(
+							sequentialLength).str()) + ">";
 					break;
 				case void_:
 					result = "void";
 					break;
 				case range:
 					result = "range";
+					break;
+				case boolean:
+					result = "bool";
 					break;
 			}
 
@@ -149,10 +241,6 @@ namespace tvl {
 
 			return result;
 		}
-
-		TypeType baseType;
-		llvm::SmallVector<int64_t, 2> shape;
-		llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes;
 
 		friend llvm::raw_ostream& operator<<(llvm::raw_ostream& output, const LangType& type) {
 			return output << type.describe();
@@ -224,6 +312,7 @@ namespace tvl {
 	static const LangType floatType{floatingPoint};
 	static const LangType f32Type{f32};
 	static const LangType f64Type{f64};
+	static const LangType boolType{boolean};
 	static const LangType voidType{void_};
 	static const LangType rangeType{range};
 }

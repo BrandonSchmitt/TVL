@@ -25,9 +25,10 @@ namespace {
 			auto memRef = rewriter.create<mlir::memref::AllocaOp>(loc, memRefType);
 
 			auto begin = rewriter.create<ConstantOp>(loc, rewriter.getIndexAttr(0));
+			auto end = rewriter.create<ConstantOp>(loc, rewriter.getIndexAttr(vectorSequenceOp.vectorType().getShape().front()));
 			auto step = rewriter.create<ConstantOp>(loc, rewriter.getIndexAttr(1));
 
-			rewriter.create<scf::ForOp>(loc, begin, vectorSequenceOp.length(), step, llvm::None,
+			rewriter.create<scf::ForOp>(loc, begin, end, step, llvm::None,
 					[&](OpBuilder& builder, Location loc, Value inductionVar, ValueRange) {
 						auto castInductionVar = builder.create<IndexCastOp>(loc, inductionVar, vectorSequenceOp.offset().getType());
 						auto value = builder.create<AddIOp>(loc, vectorSequenceOp.offset(), castInductionVar);

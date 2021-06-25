@@ -37,7 +37,7 @@ namespace {
 		void dump(const Integer* node);
 		void dump(const Range* node);
 		void dump(const Statement* node);
-		void dump(const StatementList* node);
+		void dump(const StatementPtrVec* node);
 		//void dump(VariableExprAST* node);
 		//void dump(PrintExprAST* node);
 		//void dump(PrototypeAST* node);
@@ -126,7 +126,7 @@ void ASTDumper::dump(const BinaryOperator* node) {
 
 void ASTDumper::dump(const Declaration* node) {
 	INDENT();
-	llvm::errs() << "Variable Declaration; Type '" << node->getTypeIdentifier() << "', Name '" << node->getName()
+	llvm::errs() << "Variable Declaration; Type '" << node->getExpression()->getEmittingLangType() << "', Name '" << node->getName()
 			<< "', Init: { " << loc(node) << "\n";
 	dump(node->getExpression().get());
 	indent();
@@ -210,7 +210,7 @@ void ASTDumper::dump(const Statement* statement) {
 }
 
 /// A "block", or a list of expression
-void ASTDumper::dump(const StatementList* statementList) {
+void ASTDumper::dump(const StatementPtrVec* statementList) {
 	INDENT();
 	llvm::errs() << "Block {\n";
 	for (auto& stmt : *statementList) {

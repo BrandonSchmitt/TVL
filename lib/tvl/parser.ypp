@@ -36,6 +36,8 @@
 	SLASH "/"
 	PERCENT "%"
 	EQUAL "="
+	GT ">"
+	LT "<"
 	DOTDOT ".."
 	CONST "const"
 	FN "fn"
@@ -46,10 +48,11 @@
 ;
 
 %token <std::string> IDENTIFIER "identifier";
-%token <uint64_t> INTEGER "integer";
+%token <std::pair<llvm::APInt, tvl::TypeType>> INTEGER "integer";
 %token <double> FLOATING_POINT "floating-point";
-%nterm <std::vector<std::unique_ptr<tvl::ast::Expression>>> argument-list;
-%nterm <std::vector<std::unique_ptr<tvl::ast::Expression>>> array-elements;
+%nterm <tvl::ast::ExpressionPtrVec>                         argument-list;
+%nterm <tvl::ast::ExpressionPtrVec>                         argument-list-or-empty;
+%nterm <tvl::ast::ExpressionPtrVec>                         array-elements;
 %nterm <std::unique_ptr<tvl::ast::ConstDeclaration>>        const-declaration;
 %nterm <std::unique_ptr<tvl::ast::Declaration>>             declaration;
 %nterm <std::unique_ptr<tvl::ast::Expression>>              expression;
@@ -61,6 +64,9 @@
 %nterm <std::vector<std::unique_ptr<tvl::ast::Parameter>>>  parameter-list;
 %nterm <std::unique_ptr<tvl::ast::Statement>>               statement;
 %nterm <std::vector<std::unique_ptr<tvl::ast::Statement>>>  statement-list;
+%nterm <tvl::ast::TemplateArgument>                         template-argument;
+%nterm <tvl::ast::TemplateArgumentVec>                      template-argument-list;
+%nterm <tvl::ast::TemplateArgumentVec>                      template-argument-list-or-empty
 
 %left ","
 %right "=" //"+=" "-=" "*=" "/=" "%=" "<<=" ">>=" "&=" "^=" "|="
@@ -105,11 +111,16 @@
 %start module;
 
 argument-list:
-	expression                  	{ $$ = vector<unique_ptr<Expression>>(); $$.push_back($1); } |
+	expression                  	{ $$ = ArgumentVec(); $$.push_back($1); } |
 	argument-list "," expression	{ $$ = $1; $$.push_back($3); } ;
 
+argument-list-or-empty:
+    "(" ")"                     { $$ = ArgumentVec(); } |
+    "(" argument-list ")"       { $$ = $2; } |
+    "(" argument-list "," ")"   { $$ = $2; } ;
+
 array-elements:
-    expression { $$ = vector<unique_ptr<Expression>>(); $$.push_back($1); } |
+    expression { $$ = ExpressionPtrVec(); $$.push_back($1); } |
     array-elements "," expression { $$ = $1; $$.push_back($3); } ;
 
 const-declaration:
@@ -130,11 +141,10 @@ expression:
 	"[" array-elements "]" { $$ = make_unique<Array>($2, @$); } |	// array-expression
     expression "[" expression "]" { $$ = make_unique<ArrayIndexing>($1, $3, @$); } %prec ARRAY_INDEXING |	// array-indexing-expression
     expression "=" expression { $$ = make_unique<Assignment>($1, $3, @$); } |	// assignment-expression
-	"identifier" "(" argument-list ")" %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, $3, @$); } |  // call-expression
-	"identifier" "(" ")" %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, vector<unique_ptr<Expression>>(), @$); } |  // call-expression
+	"identifier" template-argument-list-or-empty argument-list-or-empty %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, $2, $3, @$); } |  // call-expression
     "identifier" { $$ = make_unique<Identifier>($1, @$); } |
     expression ".." expression { $$ = make_unique<Range>($1, $3, @$); } |   // range-expression
-    "integer" { $$ = make_unique<Integer>($1, @$); } |
+    "integer" { auto integer = $1; $$ = make_unique<Integer>(integer.first, integer.second, @$); } |
     "floating-point" { /*$$ = make_unique<FloatingPoint>($1, @$);*/ } ;
 
 function:
@@ -167,6 +177,19 @@ statement:
     declaration ";" { $$ = $1; } |
     expression ";" { $$ = $1; } |
 	"for" "identifier" "in" expression "{" statement-list "}" { $$ = make_unique<ForLoop>($2, $4, $6, @$); } ;
+
+template-argument:
+    "identifier"        { $$ = make_unique<Identifier>($1, @$); } |
+    "integer"           { auto integer = $1; $$ = make_unique<Integer>(integer.first, integer.second, @$); } ;
+
+template-argument-list:
+    template-argument                               { $$ = TemplateArgumentVec(); $$.push_back($1); } |
+    template-argument-list "," template-argument    { $$ = $1; $$.push_back($3); } ;
+
+template-argument-list-or-empty:
+    %empty                              { $$ = TemplateArgumentVec(); } |
+    "<" template-argument-list ">"      { $$ = $2; } |
+    "<" template-argument-list "," ">"  { $$ = $2; } ;
 
 %%
 

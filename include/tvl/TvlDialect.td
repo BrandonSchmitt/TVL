@@ -47,4 +47,6 @@ class TvlBinaryCmpOp<string mnemonic, list<OpTrait> traits = []> : TvlOp<mnemoni
 	let assemblyFormat = "$lhs `,` $rhs attr-dict `:` type($lhs)";
 }
 
+def LLVM_AnyPointer : Type<CPred<"$_self.isa<::mlir::LLVM::LLVMPointerType>()">, "LLVM pointer type">;
+
 #endif // TVL_DIALECT

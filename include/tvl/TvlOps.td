@@ -181,9 +181,9 @@ def PrintOp : TvlOp<"print"> {
 		The "print" builtin operation prints a given input integer, and produces no results.
 	}];
 
-	let arguments = (ins AnyTypeOf<[I8, I16, I32, I64, Index]>:$input);
+	let arguments = (ins LLVM_AnyPointer:$formatPointer, AnyTypeOf<[I8, I16, I32, I64, Index]>:$input);
 
-	let assemblyFormat = "$input attr-dict `:` type($input)";
+	let assemblyFormat = "$formatPointer `,` $input attr-dict `:` type($formatPointer) `,` type($input)";
 }
 
 def RandOp : TvlOp<"rand"> {

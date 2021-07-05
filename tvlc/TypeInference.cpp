@@ -59,6 +59,10 @@ namespace {
 			auto print_u32 = StdLibFunction("print", {voidType, u32Type});
 			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
 			auto print_usize = StdLibFunction("print", {voidType, usizeType});
+			auto print_i8 = StdLibFunction("print", {voidType, i8Type});
+			auto print_i16 = StdLibFunction("print", {voidType, i16Type});
+			auto print_i32 = StdLibFunction("print", {voidType, i32Type});
+			auto print_i64 = StdLibFunction("print", {voidType, i64Type});
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
 			auto vecAdd = StdLibFunction("vecAdd",
@@ -326,7 +330,7 @@ namespace {
 
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
 			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>(
-					{&print_u8, &print_u16, &print_u32, &print_u64, &print_usize})});
+					{&print_u8, &print_u16, &print_u32, &print_u64, &print_usize, &print_i8, &print_i16, &print_i32, &print_i64})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
 			stdLibFunctions.insert({"vecAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecAdd})});

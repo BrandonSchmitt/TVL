@@ -8,6 +8,7 @@
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 using namespace mlir;
 
@@ -63,7 +64,7 @@ void NoExtensionLoweringPass::runOnOperation() {
 	// The first thing to define is the conversion target. This will define the final target for this lowering. For this
 	// lowering, we are only targeting the LLVM dialect.
 	ConversionTarget target(getContext());
-	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp>();
+	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp, LLVM::GlobalOp, LLVM::AddressOfOp, LLVM::ConstantOp, LLVM::GEPOp>();
 	target.addLegalDialect<tvl::TvlDialect, memref::MemRefDialect, scf::SCFDialect, StandardOpsDialect, vector::VectorDialect>();
 	target.addIllegalOp<tvl::VectorSequenceOp>();
 
@@ -94,7 +95,7 @@ void AVX512LoweringPass::runOnOperation() {
 	// The first thing to define is the conversion target. This will define the final target for this lowering. For this
 	// lowering, we are only targeting the LLVM dialect.
 	ConversionTarget target(getContext());
-	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp>();
+	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp, LLVM::GlobalOp, LLVM::AddressOfOp, LLVM::ConstantOp, LLVM::GEPOp>();
 	target.addLegalDialect<tvl::TvlDialect, memref::MemRefDialect, scf::SCFDialect, StandardOpsDialect, vector::VectorDialect>();
 	target.addIllegalOp<tvl::VectorSequenceOp>();
 

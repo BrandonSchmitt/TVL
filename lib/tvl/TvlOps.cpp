@@ -4,6 +4,11 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/TypeUtilities.h"
 
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/IR/DialectImplementation.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Support/Mutex.h"
+
 using namespace mlir;
 using namespace mlir::tvl;
 

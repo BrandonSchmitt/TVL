@@ -14,6 +14,7 @@
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/Support/raw_ostream.h"
 #include <numeric>
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 
 // Todo: Maybe replace it
@@ -518,7 +519,51 @@ namespace {
 			if (!arg) {
 				return mlir::failure();
 			}
-			builder.create<PrintOp>(loc(call.getLocation()), arg);
+
+			auto location = loc(call.getLocation());
+
+			mlir::Value formatString;
+			switch (call.getArguments().front()->getEmittingLangType().baseType) {
+				case u8:
+					formatString = getOrCreateGlobalString(location, "println_u8_fmt", StringRef("%hhu\n\0", 6));
+					static_assert(sizeof(unsigned char) == 1, "%hhu is the wrong identifier for printf");
+					break;
+				case u16:
+					formatString = getOrCreateGlobalString(location, "println_u16_fmt", StringRef("%hu\n\0", 5));
+					static_assert(sizeof(unsigned short int) == 2, "%hu is the wrong identifier for printf");
+					break;
+				case u32:
+					formatString = getOrCreateGlobalString(location, "println_u32_fmt", StringRef("%u\n\0", 4));
+					static_assert(sizeof(unsigned int) == 4, "%u is the wrong identifier for printf");
+					break;
+				case u64:
+					formatString = getOrCreateGlobalString(location, "println_u64_fmt", StringRef("%lu\n\0", 5));
+					static_assert(sizeof(unsigned long int) == 8, "%lu is the wrong identifier for printf");
+					break;
+				case usize:
+					formatString = getOrCreateGlobalString(location, "println_usize_fmt", StringRef("%zu\n\0", 5));
+					static_assert(sizeof(size_t) == 8, "%zu is the wrong identifier for printf");
+					break;
+				case i8:
+					formatString = getOrCreateGlobalString(location, "println_i8_fmt", StringRef("%hhi\n\0", 6));
+					static_assert(sizeof(char) == 1, "%hhi is the wrong identifier for printf");
+					break;
+				case i16:
+					formatString = getOrCreateGlobalString(location, "println_i16_fmt", StringRef("%hi\n\0", 5));
+					static_assert(sizeof(short int) == 2, "%hi is the wrong identifier for printf");
+					break;
+				case i32:
+					formatString = getOrCreateGlobalString(location, "println_i32_fmt", StringRef("%i\n\0", 4));
+					static_assert(sizeof(int) == 4, "%i is the wrong identifier for printf");
+					break;
+				case i64:
+					formatString = getOrCreateGlobalString(location, "println_i64_fmt", StringRef("%li\n\0", 5));
+					static_assert(sizeof(long int) == 8, "%li is the wrong identifier for printf");
+					break;
+				default:
+					return mlir::failure();
+			}
+			builder.create<PrintOp>(location, formatString, arg);
 			return mlir::success();
 		}
 
@@ -846,6 +891,28 @@ namespace {
 					return builder.getNoneType();
 			}
 		}
+
+		/// Return a value representing an access into a global string with the given name, creating the string if
+		/// necessary.
+		mlir::Value getOrCreateGlobalString(mlir::Location loc, StringRef name, StringRef value) {
+			// Create the global at the entry of the module.
+			mlir::LLVM::GlobalOp global;
+			if (!(global = theModule.lookupSymbol<mlir::LLVM::GlobalOp>(name))) {
+				mlir::OpBuilder::InsertionGuard insertGuard(builder);
+				builder.setInsertionPointToStart(theModule.getBody());
+				auto type = mlir::LLVM::LLVMArrayType::get(mlir::IntegerType::get(builder.getContext(), 8), value.size());
+				global = builder.create<mlir::LLVM::GlobalOp>(loc, type, true, mlir::LLVM::Linkage::Internal, name,
+				                                        builder.getStringAttr(value));
+			}
+
+			// Get the pointer to the first character in the global string.
+			mlir::Value globalPtr = builder.create<mlir::LLVM::AddressOfOp>(loc, global);
+			mlir::Value cst0 = builder.create<mlir::LLVM::ConstantOp>(loc, mlir::IntegerType::get(builder.getContext(), 64),
+			                                              builder.getIntegerAttr(builder.getIndexType(), 0));
+			return builder.create<mlir::LLVM::GEPOp>(loc,
+			                                         mlir::LLVM::LLVMPointerType::get(mlir::IntegerType::get(builder.getContext(), 8)), globalPtr,
+			                                   ArrayRef<mlir::Value>({cst0, cst0}));
+		}
 	};
 
 } // namespace
@@ -854,6 +921,7 @@ namespace tvl {
 
 	// The public API for codegen.
 	mlir::OwningModuleRef mlirGen(mlir::MLIRContext& context, ast::Module& moduleAST) {
+		context.getOrLoadDialect<mlir::LLVM::LLVMDialect>();
 		return MLIRGenImpl(context).mlirGen(moduleAST);
 	}
 

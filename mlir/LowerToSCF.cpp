@@ -6,6 +6,7 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 
 // Todo: maybe replace
@@ -62,7 +63,7 @@ void TvlToSCFLoweringPass::runOnOperation() {
 	// The first thing to define is the conversion target. This will define the final target for this lowering. For this
 	// lowering, we are only targeting the LLVM dialect.
 	ConversionTarget target(getContext());
-	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp>();
+	target.addLegalOp<ModuleOp, /*ModuleTerminatorOp,*/ FuncOp, ConstantOp, LLVM::GlobalOp, LLVM::AddressOfOp, LLVM::ConstantOp, LLVM::GEPOp>();
 	target.addLegalDialect<tvl::TvlDialect, scf::SCFDialect, memref::MemRefDialect>();
 	target.addIllegalOp<tvl::ForOp, tvl::YieldOp>();
 

@@ -337,6 +337,10 @@ namespace tvl {
 	static const LangType u32Type{u32};
 	static const LangType u64Type{u64};
 	static const LangType usizeType{usize};
+	static const LangType i8Type{i8};
+	static const LangType i16Type{i16};
+	static const LangType i32Type{i32};
+	static const LangType i64Type{i64};
 	static const LangType floatType{floatingPoint};
 	static const LangType f32Type{f32};
 	static const LangType f64Type{f64};

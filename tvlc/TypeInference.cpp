@@ -82,7 +82,7 @@ namespace {
 							voidType,
 							LangType::getVectorType("T", "N"),
 							LangType::getMaskType("N"),
-							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+							LangType::getArrayType("T", "N"),
 					}
 			);
 			auto vecDiv = StdLibFunction("vecDiv",
@@ -105,7 +105,7 @@ namespace {
 					},
 					{
 							LangType::getVectorType("T", "N"),
-							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+							LangType::getArrayType("T", "N"),
 					}
 			);
 			auto vecHAdd = StdLibFunction("vecHAdd",
@@ -118,13 +118,13 @@ namespace {
 					{
 							voidType,
 							LangType::getVectorType("T", "N"),
-							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+							LangType::getArrayType("T", "N"),
 					}
 			);
 			auto vecGather = StdLibFunction("vecGather",
 					{
 							LangType::getVectorType("T", "N"),
-							LangType{number, llvm::SmallVector<int64_t, 2>{0}},
+							LangType::getArrayType("T", "N"),
 							LangType::getVectorType("R", "N"),
 					}
 			);
@@ -417,24 +417,21 @@ namespace {
 				}
 			}
 
-			elementType.shape.emplace_back(static_cast<int64_t>(array.getElements().size()));
-			array.setEmittingLangType(elementType);
+			array.setEmittingLangType(LangType::getArrayType(elementType, array.getElements().size()));
 
 			return true;
 		}
 
 		bool inferTopDown(Array& array, const LangType& type) {
-			if (type.shape.empty()) {
-				// Todo: Emit error
+			if (type.baseType != tvl::array) {
+				llvm::errs() /*<< array.getLocation()*/ << ": Value is not of type array.";
 				return false;
 			}
 
 			array.setEmittingLangType(type);
 
-			auto elementType = type;
-			elementType.shape.pop_back();
 			for (auto& element : array.getElements()) {
-				if (!inferTopDown(*element, elementType)) {
+				if (!inferTopDown(*element, *type.elementType)) {
 					return false;
 				}
 			}
@@ -449,14 +446,12 @@ namespace {
 				return false;
 			}
 
-			if (array.getEmittingLangType().shape.empty()) {
+			if (array.getEmittingLangType().baseType != tvl::array) {
 				llvm::errs() /*<< identifier.getLocation()*/ << ": Indexing only works on arrays\n";
 				return false;
 			}
 
-			LangType elementType{array.getEmittingLangType()};
-			elementType.shape.pop_back();
-			arrayIndexing.setEmittingLangType(elementType);
+			arrayIndexing.setEmittingLangType(*array.getEmittingLangType().elementType);
 
 			return inferTopDown(index, usizeType);
 		}
@@ -464,9 +459,7 @@ namespace {
 		bool inferTopDown(ArrayIndexing& arrayIndexing, const LangType& type) {
 			arrayIndexing.setEmittingLangType(type);
 
-			auto arrayType{type};
-			arrayType.shape.push_back(0);
-			return inferTopDown(*arrayIndexing.getArray(), arrayType);
+			return inferTopDown(*arrayIndexing.getArray(), LangType::getArrayType(type, 0));
 
 			// top-down-pass for index already done in bottom-up-phase of ArrayIndexing
 		}
@@ -704,7 +697,7 @@ namespace {
 				if (filteredFunctions.begin() == filteredFunctionsEnd) {
 					llvm::errs() << "No valid function overload found.\nArguments of requested function call:";
 					for (auto& arg : functionCall.getArguments()) {
-						llvm::errs() << " " << arg->getEmittingLangType();
+						llvm::errs() << " " << arg->getEmittingLangType() << ",";
 					}
 					llvm::errs() << "\nPossible functions:\n";
 					for (auto& function : functionOverloads) {
@@ -759,26 +752,28 @@ namespace {
 					}
 				}
 
-				auto argIt = functionCall.getArguments().begin();
-				for (size_t i = 0, len = function.numParameters(); i < len; ++i) {
-					auto& parameter = function.parameter(i);
-					auto& argument = **argIt;
+				{
+					auto argIt = functionCall.getArguments().begin();
+					for (size_t i = 0, len = function.numParameters(); i < len; ++i) {
+						auto &parameter = function.parameter(i);
+						auto &argument = **argIt;
 
-					if (!inferBottomUp(argument)) {
-						return false;
-					}
-
-					if (parameter.incomplete()) {
-						auto argumentType = argument.getEmittingLangType();
-						if (!TypeInference::inferGenerics(templateArguments, parameter, argumentType)) {
+						if (!inferBottomUp(argument)) {
 							return false;
 						}
-					}
 
-					if (!inferTopDown(argument, parameter)) {
-						return false;
+						auto argumentType = argument.getEmittingLangType();
+						if (parameter.incomplete()) {
+							if (!TypeInference::inferGenerics(templateArguments, parameter, argumentType)) {
+								return false;
+							}
+						}
+
+						if (!inferTopDown(argument, argumentType)) {
+							return false;
+						}
+						++argIt;
 					}
-					++argIt;
 				}
 
 				for (auto& argument : templateArguments) {

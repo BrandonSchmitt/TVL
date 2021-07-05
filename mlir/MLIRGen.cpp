@@ -104,7 +104,7 @@ namespace {
 		mlir::Value mlirGen(const ast::Array& node) {
 			auto location = loc(node.getLocation());
 
-			auto integerType = getMlirType(node.getEmittingLangType().baseType);
+			auto integerType = getMlirType(node.getEmittingLangType().elementType->baseType);
 			auto arrayLength = node.getElements().size();
 			std::vector<int64_t> shape{static_cast<int64_t>(arrayLength)};
 			auto memRefType = mlir::MemRefType::get(shape, integerType);

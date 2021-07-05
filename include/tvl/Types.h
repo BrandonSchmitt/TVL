@@ -43,16 +43,13 @@ namespace tvl {
 
 	struct LangType {
 		TypeType baseType;
-		llvm::SmallVector<int64_t, 2> shape;
 		llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes;
-		std::shared_ptr<LangType> elementType;
+		std::unique_ptr<LangType> elementType;
 		std::variant<size_t, llvm::StringRef> sequentialLength;    // Either specified length or template variable
 		llvm::StringRef genericName;
 
 		LangType() : baseType{unknown} {}
 		explicit LangType(TypeType baseType) : baseType{baseType} {}
-		LangType(TypeType baseType, llvm::SmallVector<int64_t, 2> shape) : baseType{baseType},
-				shape{std::move(shape)} {}
 		LangType(TypeType baseType, llvm::SmallVector<std::shared_ptr<LangType>> parameterTypes) : baseType{baseType},
 				parameterTypes{std::move(parameterTypes)} {}
 		explicit LangType(llvm::StringRef typeIdentifier) {
@@ -83,28 +80,42 @@ namespace tvl {
 				for (auto s : shapes) {
 					unsigned long long dimension;
 					getAsUnsignedInteger(s, 10, dimension);
-					shape.push_back(dimension);
+					// TODO: shape.push_back(dimension);
 				}
 			}
+		}
+		LangType(LangType const& other)
+				: baseType{other.baseType}, parameterTypes{other.parameterTypes},
+				sequentialLength{other.sequentialLength}, genericName{other.genericName} {
+			if (other.elementType) {
+				elementType = std::make_unique<LangType>(*other.elementType);
+			}
+		}
+
+		static LangType getArrayType(const LangType& elementType, size_t arrayLength) {
+			LangType type{array};
+			type.elementType = std::make_unique<LangType>(elementType);
+			type.sequentialLength = arrayLength;
+			return type;
 		}
 
 		static LangType getArrayType(llvm::StringRef elementTypeTemplateVar, llvm::StringRef arrayLengthTemplateVar) {
 			LangType type{array};
-			type.elementType = std::make_shared<LangType>(getTemplateVariableType(elementTypeTemplateVar));
+			type.elementType = std::make_unique<LangType>(getTemplateVariableType(elementTypeTemplateVar));
 			type.sequentialLength = arrayLengthTemplateVar;
 			return type;
 		}
 
 		static LangType getVectorType(const LangType& elementType, size_t sequentialLength) {
 			LangType type{vec};
-			type.elementType = std::make_shared<LangType>(elementType);
+			type.elementType = std::make_unique<LangType>(elementType);
 			type.sequentialLength = sequentialLength;
 			return type;
 		}
 
 		static LangType getVectorType(const LangType& elementType, llvm::StringRef sequentialLengthTemplateVariable) {
 			LangType type{vec};
-			type.elementType = std::make_shared<LangType>(elementType);
+			type.elementType = std::make_unique<LangType>(elementType);
 			type.sequentialLength = sequentialLengthTemplateVariable;
 			return type;
 		}
@@ -112,14 +123,14 @@ namespace tvl {
 		static LangType
 		getVectorType(llvm::StringRef elementTypeTemplateVariable, llvm::StringRef sequentialLengthTemplateVariable) {
 			LangType type{vec};
-			type.elementType = std::make_shared<LangType>(getTemplateVariableType(elementTypeTemplateVariable));
+			type.elementType = std::make_unique<LangType>(getTemplateVariableType(elementTypeTemplateVariable));
 			type.sequentialLength = sequentialLengthTemplateVariable;
 			return type;
 		}
 
 		static LangType getMaskType(llvm::StringRef sequentialLengthTemplateVariable) {
 			LangType type{mask};
-			type.elementType = std::make_shared<LangType>(boolean);
+			type.elementType = std::make_unique<LangType>(boolean);
 			type.sequentialLength = sequentialLengthTemplateVariable;
 			return type;
 		}
@@ -130,15 +141,27 @@ namespace tvl {
 			return type;
 		}
 
+		LangType& operator=(LangType const& other) {
+			baseType = other.baseType;
+			parameterTypes = other.parameterTypes;
+			sequentialLength = other.sequentialLength;
+			genericName = other.genericName;
+			if (other.elementType) {
+				elementType = std::make_unique<LangType>(*other.elementType);
+			}
+
+			return *this;
+		}
+
 		bool operator==(const LangType& other) const {
 			return baseType == other.baseType
-					&& shape == other.shape
+					//&& shape == other.shape
 					&& parameterTypes == other.parameterTypes
 					&& elementType == other.elementType
 					&& sequentialLength == other.sequentialLength
 					&& genericName == other.genericName;
 		}
-		bool operator==(TypeType other) const { return baseType == other && shape.empty(); }
+		bool operator==(TypeType other) const { return baseType == other /*&& shape.empty()*/; }
 		bool operator!=(const LangType& other) const { return !(*this == other); }
 
 		bool isSequentialType() const { return baseType == array || baseType == vec || baseType == mask; }
@@ -235,8 +258,12 @@ namespace tvl {
 					break;
 			}
 
-			for (size_t i = 0, length = shape.size(); i < length; ++i) {
-				result += '[' + std::to_string(shape[i]) + ']';
+			if (isGeneric()) {
+				if (result == "unknown") {
+					result = genericName.str();
+				} else {
+					result = genericName.str() + ": " + result;
+				}
 			}
 
 			return result;
@@ -248,17 +275,18 @@ namespace tvl {
 
 		static bool compatible(const LangType& type1, const LangType& type2) {
 			if (type1 == unknown || type2 == unknown) { return true; }
-			if (type1.shape.size() != type2.shape.size()) {
-				return false;
-			}
 			if (type1.baseType != unknown && type2.baseType != unknown && !subTypeOf(type1.baseType, type2.baseType) &&
 					!subTypeOf(type2.baseType, type1.baseType)) {
 				return false;
 			}
-			for (size_t i = 0; i < type1.shape.size(); ++i) {
-				if (type1.shape[i] != type2.shape[i] && type1.shape[i] != 0 && type2.shape[i] != 0) {
-					return false;
-				}
+			if (type1.isGeneric() || type2.isGeneric()) {
+				return true;
+			}
+			if (type1.isSequentialType() && (!compatible(*type1.elementType, *type2.elementType) ||
+					(!std::holds_alternative<llvm::StringRef>(type1.sequentialLength) &&
+							!std::holds_alternative<llvm::StringRef>(type2.sequentialLength) &&
+							type1.sequentialLength != type2.sequentialLength))) {
+				return false;
 			}
 			return true;
 		}
@@ -277,24 +305,24 @@ namespace tvl {
 		}
 
 		static LangType intersect(const LangType& type1, const LangType& type2) {
+			if (type1.isGeneric()) {
+				return type2;
+			}
 			if (type1 == unknown) {
 				return type2;
 			}
 			if (type2 == unknown) {
 				return type1;
 			}
-			assert(type1.baseType != unknown && type2.baseType != unknown &&
-					"Base Type should be known if shape is known");
 			auto baseType = type1.baseType;
 			if (baseType == unknown || LangType::subTypeOf(type1.baseType, type2.baseType)) {
 				baseType = type2.baseType;
 			}
 
-			LangType result{baseType, type1.shape};
-			for (size_t i = 0; i < result.shape.size(); ++i) {
-				if (result.shape[i] == 0) {
-					result.shape[i] = type2.shape[i];
-				}
+			LangType result{baseType};
+			if (result.isSequentialType()) {
+				result.elementType = std::make_unique<LangType>(intersect(*type1.elementType, *type2.elementType));
+				result.sequentialLength = type1.sequentialLength;
 			}
 
 			return result;

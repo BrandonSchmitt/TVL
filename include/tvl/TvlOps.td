@@ -47,6 +47,10 @@ class MaskCountOp<string mnemonic> : TvlOp<mnemonic, [NoSideEffect]> {
 		OpBuilder<(ins "Value":$mask), [{ build($_builder, $_state, $_builder.getIndexType(), mask); }]>
 	];
 
+	let extraClassDeclaration = [{
+		auto maskLength() { return mask().getType().cast<VectorType>().getShape().front(); }
+	}];
+
 	let assemblyFormat = "$mask attr-dict `:` type($mask)";
 }
 

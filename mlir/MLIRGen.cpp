@@ -498,17 +498,14 @@ namespace {
 		}
 
 		mlir::Value mlirGenMaskInit(const ast::FunctionCall& call) {
-			if (call.getArguments().size() != 1) {
+			if (call.getTemplateArguments().size() != 1) {
 				return nullptr;
 			}
-			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
-			if (length == nullptr) {
-				return nullptr;
-			}
+			auto length = std::get<ast::IntegerPtr>(call.getTemplateArgument(0))->getValue();
 
 			auto location = loc(call.getLocation());
 			auto value = builder.create<ConstantOp>(location, builder.getIntegerAttr(builder.getI1Type(), 0));
-			return builder.create<VectorBroadcastOp>(location, mlir::VectorType::get(length->getValue(), builder.getI1Type()), value);
+			return builder.create<VectorBroadcastOp>(location, mlir::VectorType::get(length, builder.getI1Type()), value);
 		}
 
 		mlir::LogicalResult mlirGenPrint(const ast::FunctionCall& call) {
@@ -683,22 +680,18 @@ namespace {
 		}
 
 		mlir::Value mlirGenVectorLoad(const ast::FunctionCall& call) {
-			if (call.getArguments().size() != 2) {
+			if (call.getTemplateArguments().size() != 1 || call.getArguments().size() != 1) {
 				return nullptr;
 			}
 			auto memref = mlirGen(*call.getArguments().front());
 			if (!memref) {
 				return nullptr;
 			}
-
-			auto length = dyn_cast<ast::Integer>(call.getArguments().back().get());
-			if (length == nullptr) {
-				return nullptr;
-			}
+			auto length = std::get<ast::IntegerPtr>(call.getTemplateArgument(0))->getValue();
 
 			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
 			return builder.create<VectorLoadOp>(loc(call.getLocation()),
-					mlir::VectorType::get(length->getValue(), memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
+					mlir::VectorType::get(length, memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
 		}
 
 		mlir::LogicalResult mlirGenVectorStore(const ast::FunctionCall& call) {

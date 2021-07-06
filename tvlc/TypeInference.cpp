@@ -291,7 +291,7 @@ namespace {
 							TemplateParameter{"N", usizeType, Location()},
 					},
 					{
-							LangType{mask},
+							LangType::getMaskType("N"),
 					}
 			);
 			auto maskAnd = StdLibFunction("maskAnd",

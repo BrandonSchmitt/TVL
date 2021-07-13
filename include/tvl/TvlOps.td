@@ -147,6 +147,21 @@ def GenericCallOp : TvlOp<"generic_call"> {
 	];
 }
 
+def InstantNowOp : TvlOp<"instant_now", []> {
+	let summary = "Retrieve the time";
+
+	let results = (outs TvlStructType:$instant);
+
+	let assemblyFormat = "attr-dict `:` type($instant)";
+}
+
+def InstantElapsedOp : TvlOp<"instant_elapsed", []> {
+	let summary = "Returns the number of seconds elapsed since the given instant";
+
+	let arguments = (ins TvlStructType:$instant);
+	let results = (outs F64:$result);
+}
+
 def LoadOp : TvlOp<"load", [
 			MemRefsNormalizable,
 			TypesMatchWith<"result type matches element type of 'memRef'", "memRef", "result", "$_self.cast<MemRefType>().getElementType()">
@@ -185,9 +200,9 @@ def PrintOp : TvlOp<"print"> {
 		The "print" builtin operation prints a given input integer, and produces no results.
 	}];
 
-	let arguments = (ins LLVM_AnyPointer:$formatPointer, AnyTypeOf<[I8, I16, I32, I64, Index]>:$input);
+	let arguments = (ins LLVM_AnyPointer:$formatPointer, Variadic<AnyTypeOf<[I8, I16, I32, I64, Index, F64]>>:$input);
 
-	let assemblyFormat = "$formatPointer `,` $input attr-dict `:` type($formatPointer) `,` type($input)";
+	//let assemblyFormat = "$formatPointer `,` $input attr-dict `:` type($formatPointer) `,` type($input)";
 }
 
 def RandOp : TvlOp<"rand"> {

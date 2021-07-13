@@ -35,6 +35,7 @@ namespace tvl {
 		class Parameter;
 		class Range;
 		class Statement;
+		class String;
 		class TemplateParameter;
 		// End of forward declarations
 
@@ -121,6 +122,7 @@ namespace tvl {
 			IdentifierNode,
 			IntegerNode,
 			RangeNode,
+			StringNode,
 			EXPRESSIONS_END,
 
 			DECLARATIONS_BEGIN = EXPRESSIONS_END,
@@ -373,6 +375,19 @@ namespace tvl {
 			const Type operatorType;
 			const ExpressionPtr lhs;
 			const ExpressionPtr rhs;
+		};
+
+		class String : public Expression {
+		public:
+			String(std::string string, Location loc) : Expression{StringNode, stringType, loc}, string{std::move(string)} {}
+
+			const std::string& getString() const { return string; }
+
+			/// LLVM style RTTI
+			static bool classof(const Node* node) { return node->getType() == StringNode; }
+
+		private:
+			const std::string string;
 		};
 
 		class Declaration : public Statement {

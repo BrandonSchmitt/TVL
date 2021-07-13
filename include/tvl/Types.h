@@ -32,6 +32,7 @@ namespace tvl {
 		mask,
 		range,
 		callable,
+		string,
 
 		NUMBERS_BEGIN = number,
 		NUMBERS_END = boolean,
@@ -256,6 +257,9 @@ namespace tvl {
 				case boolean:
 					result = "bool";
 					break;
+				case string:
+					result = "string";
+					break;
 			}
 
 			if (isGeneric()) {
@@ -347,6 +351,7 @@ namespace tvl {
 	static const LangType boolType{boolean};
 	static const LangType voidType{void_};
 	static const LangType rangeType{range};
+	static const LangType stringType{string};
 }
 
 #endif //TVL_DIALECT_TYPES_H

@@ -307,7 +307,7 @@ void TvlToStdLoweringPass::runOnOperation() {
 	// lowering, we are only targeting the LLVM dialect.
 	ConversionTarget target(getContext());
 	target.addLegalDialect<memref::MemRefDialect, StandardOpsDialect, vector::VectorDialect, LLVM::LLVMDialect>();
-	target.addLegalOp<ModuleOp, FuncOp, tvl::PrintOp, tvl::RandOp, tvl::SRandOp /*, ModuleTerminatorOp*/>();
+	target.addLegalOp<ModuleOp, FuncOp, tvl::PrintOp, tvl::RandOp, tvl::SRandOp, tvl::InstantNowOp, tvl::InstantElapsedOp /*, ModuleTerminatorOp*/>();
 
 	// Now that the conversion target has been defined, we need to provide the patterns used for lowering. At this point
 	// of the compilation process, we have a combination of `tvl`, `affine`, and `std` operations. Luckily, there are

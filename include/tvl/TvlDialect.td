@@ -10,6 +10,8 @@ def TvlDialect : Dialect {
     let cppNamespace = "::mlir::tvl";
 }
 
+def TvlStructType : DialectType<TvlDialect, CPred<"$_self.isa<StructType>()">, "TVL struct type">;
+
 class TvlOp<string mnemonic, list<OpTrait> traits = []> : Op<TvlDialect, mnemonic, traits>;
 
 // Base class for standard binary arithmetic operations.

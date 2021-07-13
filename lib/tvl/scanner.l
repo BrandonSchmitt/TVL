@@ -33,6 +33,7 @@ blank [ \t\r]
 
 	Parser::symbol_type make_INTEGER(Parser* parser, llvm::StringRef string, const Parser::location_type& location);
 	Parser::symbol_type make_FLOATING_POINT(Parser* parser, llvm::StringRef string, const Parser::location_type& location);
+	Parser::symbol_type make_STRING(Parser* parser, llvm::StringRef string, const Parser::location_type& location);
 %}
 
 %%
@@ -73,6 +74,7 @@ blank [ \t\r]
 {digit}+\.{digit}+          { return make_FLOATING_POINT(parser, yytext, loc); }
 {digit}+([iu](8|16|32|64)|usize)?   { return make_INTEGER(parser, yytext, loc); }
 {alpha}({alpha}|{digit})*   { return Parser::make_IDENTIFIER(yytext, loc); }
+\"([^\\\"]|\\.)*\"          { return make_STRING(parser, yytext, loc); }
 .                           { parser->error(Parser::syntax_error(loc, "invalid character: " + std::string(yytext))); }
 %%
 
@@ -106,6 +108,10 @@ Parser::symbol_type make_FLOATING_POINT(Parser* parser, llvm::StringRef string, 
         parser->error(Parser::syntax_error(location, "Floating point number is out of range: " + string.str()));
     }
     return Parser::make_FLOATING_POINT(number, location);
+}
+
+Parser::symbol_type make_STRING(Parser* parser, llvm::StringRef string, const Parser::location_type& location) {
+    return Parser::make_STRING(string.drop_front(1).drop_back(1).str(), location);
 }
 
 void tvl::ParsingDriver::beginScan(llvm::StringRef source) {

@@ -38,6 +38,7 @@ namespace {
 		void dump(const Range* node);
 		void dump(const Statement* node);
 		void dump(const StatementPtrVec* node);
+		void dump(const String* node);
 		//void dump(VariableExprAST* node);
 		//void dump(PrintExprAST* node);
 		//void dump(PrototypeAST* node);
@@ -136,14 +137,14 @@ void ASTDumper::dump(const Declaration* node) {
 /// Dispatch to a generic expressions to the appropriate subclass using RTTI
 void ASTDumper::dump(const Expression* expr) {
 	llvm::TypeSwitch<const Expression*>(expr)
-			.Case<Array, ArrayIndexing, Assignment, BinaryOperator, FunctionCall, Identifier, Integer, Range>(
+			.Case<Array, ArrayIndexing, Assignment, BinaryOperator, FunctionCall, Identifier, Integer, Range, String>(
 					[&](auto* node) { this->dump(node); })
 			.Default([&](const Expression*) {
 				// No match, fallback to a generic message
 				INDENT();
 				llvm::errs() << "<unknown Expression, kind " << expr->getType() << ">\n";
 			});
-	static_assert(EXPRESSIONS_END - EXPRESSIONS_BEGIN == 8, "Not all expressions covered in ASTDumper.");
+	static_assert(EXPRESSIONS_END - EXPRESSIONS_BEGIN == 9, "Not all expressions covered in ASTDumper.");
 }
 
 void ASTDumper::dump(const ForLoop* node) {
@@ -218,6 +219,11 @@ void ASTDumper::dump(const StatementPtrVec* statementList) {
 	}
 	indent();
 	llvm::errs() << "} // Block\n";
+}
+
+void ASTDumper::dump(const String* string) {
+	INDENT();
+	llvm::errs() << "String: " << string->getString() << " // String\n";
 }
 
 /*

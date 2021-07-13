@@ -12,6 +12,7 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopedHashTable.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/Support/raw_ostream.h"
 #include <numeric>
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -223,12 +224,14 @@ namespace {
 					emitError(loc(node.getLocation())) << "MLIR codegen does not yet support range expressions.";
 					return nullptr;
 					//return mlirGen(cast<ast::Range(node));
+				case ast::StringNode:
+					return mlirGen(cast<ast::String>(node));
 				default:
 					emitError(loc(node.getLocation())) << "MLIR codegen encountered an unhandled expression kind '"
 							<< Twine(node.getType()) << "'";
 					return nullptr;
 			}
-			static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
+			static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 9,
 					"Not all expressions covered in MLIRGen.");
 		}
 
@@ -411,6 +414,13 @@ namespace {
 				return mlirGenBinaryCmpOperator<UltOp>(call);
 			}
 
+			if (callee == "instantNow") {
+				return mlirGenInstantNow(call);
+			}
+			if (callee == "instantElapsed") {
+				return mlirGenInstantElapsed(call);
+			}
+
 			auto location = loc(call.getLocation());
 
 			// Codegen the operands first.
@@ -426,6 +436,10 @@ namespace {
 			// Otherwise this is a call to a user-defined function. Calls to user-defined functions are mapped to a
 			// custom call that takes the callee name as an attribute.
 			return builder.create<GenericCallOp>(location, callee, operands);
+		}
+
+		mlir::Value mlirGen(const ast::String& string) {
+			return getOrCreateGlobalString(loc(string.getLocation()), string.getString());
 		}
 
 		template<typename Op>
@@ -497,6 +511,24 @@ namespace {
 			return builder.create<ShiftOp>(loc(call.getLocation()), vector, broadcast);
 		}
 
+		mlir::Value mlirGenInstantNow(const ast::FunctionCall& call) {
+			ArrayRef<mlir::Type> elementTypes{builder.getI64Type(), builder.getI64Type()};
+			return builder.create<InstantNowOp>(loc(call.getLocation()), builder.getType<StructType>(elementTypes));
+		}
+
+		mlir::Value mlirGenInstantElapsed(const ast::FunctionCall& call) {
+			if (call.getArguments().size() != 1) {
+				return nullptr;
+			}
+
+			auto instant = mlirGen(*call.getArguments().front());
+			if (!instant) {
+				return nullptr;
+			}
+
+			return builder.create<InstantElapsedOp>(loc(call.getLocation()), builder.getF64Type(), instant);
+		}
+
 		mlir::Value mlirGenMaskInit(const ast::FunctionCall& call) {
 			if (call.getTemplateArguments().size() != 1) {
 				return nullptr;
@@ -509,58 +541,92 @@ namespace {
 		}
 
 		mlir::LogicalResult mlirGenPrint(const ast::FunctionCall& call) {
-			if (call.getArguments().size() != 1) {
+			if (call.getArguments().empty()) {
 				return mlir::failure();
 			}
-			auto arg = mlirGen(*call.getArguments().front());
-			if (!arg) {
+			if (call.getArguments().front()->getType() != tvl::ast::StringNode) {
 				return mlir::failure();
+			}
+
+			StringRef formatStr = dyn_cast<ast::String>(call.getArguments().front().get())->getString();
+			SmallVector<StringRef, 4> parts;
+			formatStr.split(parts, "{}");
+
+			if (parts.size() != call.getArguments().size()) {
+				llvm::errs() << loc(call.getLocation()) << ": print expects " << parts.size() - 1 << " arguments, " << call.getArguments().size() - 1 << " given.";
+				return mlir::failure();
+			}
+
+			llvm::SmallString<64> printfStr = parts[0];
+			for (size_t i = 1, len = parts.size(); i < len; ++i) {
+				switch (call.getArguments().at(i)->getEmittingLangType().baseType) {
+					case u8:
+						printfStr += "%hhu";
+						static_assert(sizeof(unsigned char) == 1, "%hhu is the wrong identifier for printf");
+						break;
+					case u16:
+						printfStr += "%hu";
+						static_assert(sizeof(unsigned short int) == 2, "%hu is the wrong identifier for printf");
+						break;
+					case u32:
+						printfStr += "%u";
+						static_assert(sizeof(unsigned int) == 4, "%u is the wrong identifier for printf");
+						break;
+					case u64:
+						printfStr += "%lu";
+						static_assert(sizeof(unsigned long int) == 8, "%lu is the wrong identifier for printf");
+						break;
+					case usize:
+						printfStr += "%zu";
+						static_assert(sizeof(size_t) == 8, "%zu is the wrong identifier for printf");
+						break;
+					case i8:
+						printfStr += "%hhi";
+						static_assert(sizeof(char) == 1, "%hhi is the wrong identifier for printf");
+						break;
+					case i16:
+						printfStr += "%hi";
+						static_assert(sizeof(short int) == 2, "%hi is the wrong identifier for printf");
+						break;
+					case i32:
+						printfStr += "%i";
+						static_assert(sizeof(int) == 4, "%i is the wrong identifier for printf");
+						break;
+					case i64:
+						printfStr += "%li";
+						static_assert(sizeof(long int) == 8, "%li is the wrong identifier for printf");
+						break;
+					/*case f32: Need to promote f32 to f64 first. printf does not cover f32.
+						printfStr += "%f";
+						static_assert(sizeof(double) == 4, "%f is the wrong identifier for printf");
+						break;*/
+					case f64:
+						printfStr += "%f";
+						static_assert(sizeof(double) == 8, "%f is the wrong identifier for printf");
+						break;
+					case string:
+						printfStr += "%s";
+						break;
+					default:
+						return mlir::failure();
+				}
+				printfStr += parts[i];
+			}
+			printfStr += StringRef("\n\0", 2);
+
+			SmallVector<mlir::Value, 4> operands;
+			for (size_t i = 1, len = parts.size(); i < len; ++i) {
+				auto arg = mlirGen(*call.getArguments().at(i));
+				if (!arg) {
+					return mlir::failure();
+				}
+				operands.push_back(arg);
 			}
 
 			auto location = loc(call.getLocation());
 
-			mlir::Value formatString;
-			switch (call.getArguments().front()->getEmittingLangType().baseType) {
-				case u8:
-					formatString = getOrCreateGlobalString(location, "println_u8_fmt", StringRef("%hhu\n\0", 6));
-					static_assert(sizeof(unsigned char) == 1, "%hhu is the wrong identifier for printf");
-					break;
-				case u16:
-					formatString = getOrCreateGlobalString(location, "println_u16_fmt", StringRef("%hu\n\0", 5));
-					static_assert(sizeof(unsigned short int) == 2, "%hu is the wrong identifier for printf");
-					break;
-				case u32:
-					formatString = getOrCreateGlobalString(location, "println_u32_fmt", StringRef("%u\n\0", 4));
-					static_assert(sizeof(unsigned int) == 4, "%u is the wrong identifier for printf");
-					break;
-				case u64:
-					formatString = getOrCreateGlobalString(location, "println_u64_fmt", StringRef("%lu\n\0", 5));
-					static_assert(sizeof(unsigned long int) == 8, "%lu is the wrong identifier for printf");
-					break;
-				case usize:
-					formatString = getOrCreateGlobalString(location, "println_usize_fmt", StringRef("%zu\n\0", 5));
-					static_assert(sizeof(size_t) == 8, "%zu is the wrong identifier for printf");
-					break;
-				case i8:
-					formatString = getOrCreateGlobalString(location, "println_i8_fmt", StringRef("%hhi\n\0", 6));
-					static_assert(sizeof(char) == 1, "%hhi is the wrong identifier for printf");
-					break;
-				case i16:
-					formatString = getOrCreateGlobalString(location, "println_i16_fmt", StringRef("%hi\n\0", 5));
-					static_assert(sizeof(short int) == 2, "%hi is the wrong identifier for printf");
-					break;
-				case i32:
-					formatString = getOrCreateGlobalString(location, "println_i32_fmt", StringRef("%i\n\0", 4));
-					static_assert(sizeof(int) == 4, "%i is the wrong identifier for printf");
-					break;
-				case i64:
-					formatString = getOrCreateGlobalString(location, "println_i64_fmt", StringRef("%li\n\0", 5));
-					static_assert(sizeof(long int) == 8, "%li is the wrong identifier for printf");
-					break;
-				default:
-					return mlir::failure();
-			}
-			builder.create<PrintOp>(location, formatString, arg);
+			mlir::Value formatString = getOrCreateGlobalString(location, printfStr);
+			builder.create<PrintOp>(location, formatString, operands);
 			return mlir::success();
 		}
 
@@ -880,9 +946,14 @@ namespace {
 				case mask:
 				case range:
 				case callable:
+				case string:
 					assert(false && "type not supported");
 					return builder.getNoneType();
 			}
+		}
+
+		mlir::Value getOrCreateGlobalString(mlir::Location loc, StringRef value) {
+			return getOrCreateGlobalString(loc, "str_" + std::to_string(hash_value(value)), value);
 		}
 
 		/// Return a value representing an access into a global string with the given name, creating the string if

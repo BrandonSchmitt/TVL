@@ -54,15 +54,58 @@ namespace {
 			// Make c std functions known
 			// parameters types are in the default ordering with the result type on position 0 and the first parameter
 			// at index 1 and so on.
-			auto print_u8 = StdLibFunction("print", {voidType, u8Type});
-			auto print_u16 = StdLibFunction("print", {voidType, u16Type});
-			auto print_u32 = StdLibFunction("print", {voidType, u32Type});
-			auto print_u64 = StdLibFunction("print", {voidType, u64Type});
-			auto print_usize = StdLibFunction("print", {voidType, usizeType});
-			auto print_i8 = StdLibFunction("print", {voidType, i8Type});
-			auto print_i16 = StdLibFunction("print", {voidType, i16Type});
-			auto print_i32 = StdLibFunction("print", {voidType, i32Type});
-			auto print_i64 = StdLibFunction("print", {voidType, i64Type});
+			auto instantNow = StdLibFunction("instantNow", {f64Type});
+			auto instantElapsed = StdLibFunction("instantElapsed", {f64Type, f64Type});
+			auto print_v0 = StdLibFunction("print", {
+					voidType,
+					stringType,
+			});
+			auto print_v1 = StdLibFunction("print", {
+					voidType,
+					stringType,
+					LangType::getTemplateVariableType("T", number),
+			});
+			auto print_v2 = StdLibFunction("print", {
+					voidType,
+					stringType,
+					LangType::getTemplateVariableType("T1", number),
+					LangType::getTemplateVariableType("T2", number),
+			});
+			auto print_v3 = StdLibFunction("print", {
+					voidType,
+					stringType,
+					LangType::getTemplateVariableType("T1", number),
+					LangType::getTemplateVariableType("T2", number),
+					LangType::getTemplateVariableType("T3", number),
+			});
+			auto print_v4 = StdLibFunction("print", {
+					voidType,
+					stringType,
+					LangType::getTemplateVariableType("T1", number),
+					LangType::getTemplateVariableType("T2", number),
+					LangType::getTemplateVariableType("T3", number),
+					LangType::getTemplateVariableType("T4", number),
+			});
+			auto print_v5 = StdLibFunction("print", {
+					voidType,
+					stringType,
+					LangType::getTemplateVariableType("T1", number),
+					LangType::getTemplateVariableType("T2", number),
+					LangType::getTemplateVariableType("T3", number),
+					LangType::getTemplateVariableType("T4", number),
+					LangType::getTemplateVariableType("T5", number),
+			});
+			/*auto print_u8 = StdLibFunction("print", {voidType, stringType, u8Type});
+			auto print_u16 = StdLibFunction("print", {voidType, stringType, u16Type});
+			auto print_u32 = StdLibFunction("print", {voidType, stringType, u32Type});
+			auto print_u64 = StdLibFunction("print", {voidType, stringType, u64Type});
+			auto print_usize = StdLibFunction("print", {voidType, stringType, usizeType});
+			auto print_i8 = StdLibFunction("print", {voidType, stringType, i8Type});
+			auto print_i16 = StdLibFunction("print", {voidType, stringType, i16Type});
+			auto print_i32 = StdLibFunction("print", {voidType, stringType, i32Type});
+			auto print_i64 = StdLibFunction("print", {voidType, stringType, i64Type});
+			auto print_f32 = StdLibFunction("print", {voidType, stringType, f32Type});
+			auto print_f64 = StdLibFunction("print", {voidType, stringType, f64Type});*/
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
 			auto vecAdd = StdLibFunction("vecAdd",
@@ -329,8 +372,10 @@ namespace {
 			);
 
 			//variableSourceTable.insert(print_u64.getFQN(), &print_u64);
+			stdLibFunctions.insert({"instantNow", llvm::SmallVector<StdLibFunction*, 4>({&instantNow})});
+			stdLibFunctions.insert({"instantElapsed", llvm::SmallVector<StdLibFunction*, 4>({&instantElapsed})});
 			stdLibFunctions.insert({"print", llvm::SmallVector<StdLibFunction*, 4>(
-					{&print_u8, &print_u16, &print_u32, &print_u64, &print_usize, &print_i8, &print_i16, &print_i32, &print_i64})});
+					{&print_v0, &print_v1, &print_v2, &print_v3, &print_v4, &print_v5})});
 			stdLibFunctions.insert({"srand", llvm::SmallVector<StdLibFunction*, 4>({&srand_u32})});
 			stdLibFunctions.insert({"rand_u64", llvm::SmallVector<StdLibFunction*, 4>({&rand_u64})});
 			stdLibFunctions.insert({"vecAdd", llvm::SmallVector<StdLibFunction*, 4>({&vecAdd})});
@@ -594,8 +639,10 @@ namespace {
 					return inferBottomUp(cast<Integer>(expression));
 				case ast::RangeNode:
 					return inferBottomUp(cast<Range>(expression));
+				case ast::StringNode:
+					return true;    // Its type is already set
 				default:
-					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
+					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 9,
 							"Not all expressions covered in TypeInferencePass.");
 					return false;
 			}
@@ -638,8 +685,11 @@ namespace {
 				case ast::RangeNode:
 					assert(false && "Subtypes of ranges must already be known (index, index)");
 					return false;
+				case ast::StringNode:
+					assert(false && "String type must already be known");
+					return false;
 				default:
-					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 8,
+					static_assert(ast::EXPRESSIONS_END - ast::EXPRESSIONS_BEGIN == 9,
 							"Not all expressions covered in TypeInferencePass.");
 					return false;
 			}
@@ -759,8 +809,8 @@ namespace {
 				{
 					auto argIt = functionCall.getArguments().begin();
 					for (size_t i = 0, len = function.numParameters(); i < len; ++i) {
-						auto &parameter = function.parameter(i);
-						auto &argument = **argIt;
+						auto& parameter = function.parameter(i);
+						auto& argument = **argIt;
 
 						if (!inferBottomUp(argument)) {
 							return false;

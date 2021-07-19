@@ -6,6 +6,8 @@
 using namespace mlir;
 using namespace mlir::tvl;
 
+#include "tvl/TvlOpsDialect.cpp.inc"
+
 namespace mlir::tvl {
 	struct StructTypeStorage : public mlir::TypeStorage {
 		using KeyTy = llvm::ArrayRef<mlir::Type>;

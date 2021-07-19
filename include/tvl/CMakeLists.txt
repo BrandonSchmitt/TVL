@@ -1,3 +1,3 @@
 add_mlir_dialect(TvlOps tvl)
-add_mlir_doc(TvlDialect -gen-dialect-doc TvlDialect tvl/)
-add_mlir_doc(TvlOps -gen-op-doc TvlOps tvl/)
+add_mlir_doc(TvlDialect TvlDialect tvl/ -gen-dialect-doc)
+add_mlir_doc(TvlOps TvlOps tvl/ -gen-op-doc)

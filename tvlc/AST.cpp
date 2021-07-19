@@ -59,8 +59,9 @@ namespace {
 template<typename T>
 static std::string loc(const T* node) {
 	const auto& loc = node->getLocation();
-	return (llvm::Twine("@") + loc.begin.filename + ":" + llvm::Twine(loc.begin.line) + ":" +
-			llvm::Twine(loc.begin.column)).str();
+	// TODO: switch std::to_string back to llvm::Twine (llvm::Twine currently bugs out for integers)
+	return (llvm::Twine("@") + loc.begin.filename + ":" + std::to_string(loc.begin.line) + ":" +
+			std::to_string(loc.begin.column)).str();
 }
 
 // Helper Macro to bump the indentation level and print the leading spaces for

@@ -2,6 +2,9 @@
 #include "tvl/TvlOps.h"
 #include "tvl/Passes.h"
 
+#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -277,6 +280,7 @@ void TvlToLLVMLoweringPass::runOnOperation() {
 
 	RewritePatternSet patterns(&getContext());
 	populateVectorToLLVMConversionPatterns(typeConverter, patterns);
+	populateMemRefToLLVMConversionPatterns(typeConverter, patterns);
 	populateStdToLLVMConversionPatterns(typeConverter, patterns);
 
 	// The only remaining operation to lower from the `tvl` dialect, is the PrintOp.

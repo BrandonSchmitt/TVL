@@ -3,6 +3,7 @@
 #include "tvl/Passes.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
+#include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
@@ -16,6 +17,7 @@
 #include <ctime>
 
 using namespace mlir;
+using namespace mlir::LLVM;
 
 namespace {
 	class InstantNowOpLowering : public ConversionPattern {
@@ -32,27 +34,17 @@ namespace {
 			// Get a symbol reference to the printf function, inserting it if necessary.
 			auto clockGetTimeRef = getOrInsertClockGetTime(rewriter, parentModule);
 
-			//auto randOp = cast<tvl::RandOp>(op);
-			//auto high = rewriter.create<CallOp>(loc, clockGetTimeRef, rewriter.getI32Type())->getOpResult(0);
-			//auto highCast = rewriter.create<ZeroExtendIOp>(loc, high, rewriter.getI64Type());
-			//auto low = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
-			//auto lowCast = rewriter.create<ZeroExtendIOp>(loc, low, rewriter.getI64Type());
-			//auto shiftValue = rewriter.create<ConstantOp>(loc, rewriter.getI64IntegerAttr(32));
-			//auto shiftedHigh = rewriter.create<ShiftLeftOp>(loc, highCast, shiftValue)->getOpResult(0);
-			//rewriter.replaceOpWithNewOp<OrOp>(op, shiftedHigh, lowCast);
-			Value clockId = rewriter.create<ConstantOp>(loc, rewriter.getI32IntegerAttr(CLOCK_MONOTONIC));
+			Value clockId = rewriter.create<mlir::ConstantOp>(loc, rewriter.getI32IntegerAttr(CLOCK_MONOTONIC));
 
 			auto* context = parentModule.getContext();
-			/*auto llvmI64Ty = IntegerType::get(context, 64);
-			ArrayRef<mlir::Type> elementTypes{llvmI64Ty, llvmI64Ty};
-			auto structType = LLVM::LLVMStructType::getLiteral(context, elementTypes, true);
 
-			//auto memRefType = mlir::MemRefType::get({1}, structType);*/
-			ArrayRef<mlir::Type> elementTypes{rewriter.getI64Type(), rewriter.getI64Type()};
-			auto memRefType = mlir::MemRefType::get({1}, rewriter.getType<tvl::StructType>(elementTypes));
-			Value memref = rewriter.create<memref::AllocaOp>(loc, memRefType);
-			//Value timespecStruct = rewriter.create<ConstantOp>(loc, rewriter.ge)
-			rewriter.replaceOpWithNewOp<CallOp>(op, clockGetTimeRef, rewriter.getI32Type(), ArrayRef<Value>({clockId, memref}));
+			auto int64Ty = rewriter.getI64Type();
+			auto instantStructType = LLVMStructType::getLiteral(context, {int64Ty, int64Ty});
+			auto instantStructPtrType = LLVM::LLVMPointerType::get(instantStructType);
+			Value instantStructSize = rewriter.create<mlir::ConstantOp>(loc, rewriter.getI8IntegerAttr(16));
+			Value instantStructPtr = rewriter.create<LLVM::AllocaOp>(loc, instantStructPtrType, instantStructSize);
+			rewriter.create<mlir::CallOp>(loc, clockGetTimeRef, rewriter.getI32Type(), ArrayRef<Value>({clockId, instantStructPtr}));
+			rewriter.replaceOpWithNewOp<LLVM::LoadOp>(op, instantStructPtr);
 
 			return success();
 		}
@@ -67,7 +59,7 @@ namespace {
 			auto llvmI32Ty = IntegerType::get(context, 32);
 			auto llvmI64Ty = IntegerType::get(context, 64);
 			ArrayRef<mlir::Type> elementTypes{llvmI64Ty, llvmI64Ty};
-			auto structType = LLVM::LLVMStructType::getLiteral(context, elementTypes, true);
+			auto structType = LLVM::LLVMStructType::getLiteral(context, elementTypes);
 			auto structPtrType = LLVM::LLVMPointerType::get(structType);
 			auto llvmFnType = LLVM::LLVMFunctionType::get(llvmI32Ty, {llvmI32Ty, structPtrType});
 
@@ -88,20 +80,23 @@ namespace {
 		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
 			auto loc = op->getLoc();
 
-			auto parentModule = op->getParentOfType<ModuleOp>();
+			auto instantElapsedOp = cast<tvl::InstantElapsedOp>(op);
+			auto oldInstant = instantElapsedOp.instant();
 
-			// Get a symbol reference to the printf function, inserting it if necessary.
-			auto clockGetTimeRef = InstantNowOpLowering::getOrInsertClockGetTime(rewriter, parentModule);
+			Value newInstant = rewriter.create<tvl::InstantNowOp>(loc);
 
-			//auto randOp = cast<tvl::RandOp>(op);
-			//auto high = rewriter.create<CallOp>(loc, clockGetTimeRef, rewriter.getI32Type())->getOpResult(0);
-			//auto highCast = rewriter.create<ZeroExtendIOp>(loc, high, rewriter.getI64Type());
-			//auto low = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
-			//auto lowCast = rewriter.create<ZeroExtendIOp>(loc, low, rewriter.getI64Type());
-			//auto shiftValue = rewriter.create<ConstantOp>(loc, rewriter.getI64IntegerAttr(32));
-			//auto shiftedHigh = rewriter.create<ShiftLeftOp>(loc, highCast, shiftValue)->getOpResult(0);
-			//rewriter.replaceOpWithNewOp<OrOp>(op, shiftedHigh, lowCast);
-			rewriter.replaceOpWithNewOp<CallOp>(op, clockGetTimeRef, rewriter.getI32Type());
+			Value newSeconds = rewriter.create<LLVM::ExtractValueOp>(loc, rewriter.getI64Type(), newInstant, rewriter.getI64ArrayAttr(0));
+			Value oldSeconds = rewriter.create<LLVM::ExtractValueOp>(loc, rewriter.getI64Type(), oldInstant, rewriter.getI64ArrayAttr(0));
+			Value difSeconds = rewriter.create<LLVM::SubOp>(loc, newSeconds, oldSeconds);
+
+			Value newNanoSeconds = rewriter.create<LLVM::ExtractValueOp>(loc, rewriter.getI64Type(), newInstant, rewriter.getI64ArrayAttr(1));
+			Value oldNanoSeconds = rewriter.create<LLVM::ExtractValueOp>(loc, rewriter.getI64Type(), oldInstant, rewriter.getI64ArrayAttr(1));
+			Value difNanoSeconds = rewriter.create<LLVM::SubOp>(loc, newNanoSeconds, oldNanoSeconds);
+
+			Value constant_1_000_000_000 = rewriter.create<mlir::ConstantOp>(loc, rewriter.getI64IntegerAttr(1000000000));
+			Value difSecondsInNanoSeconds = rewriter.create<LLVM::MulOp>(loc, difSeconds, constant_1_000_000_000);
+
+			rewriter.replaceOpWithNewOp<LLVM::AddOp>(op, difSecondsInNanoSeconds, difNanoSeconds);
 
 			return success();
 		}
@@ -114,7 +109,6 @@ namespace {
 
 		LogicalResult
 		matchAndRewrite(Operation* op, ArrayRef<Value> operands, ConversionPatternRewriter& rewriter) const final {
-			auto printOp = cast<tvl::PrintOp>(op);
 			auto loc = op->getLoc();
 
 			auto parentModule = op->getParentOfType<ModuleOp>();
@@ -122,7 +116,7 @@ namespace {
 			// Get a symbol reference to the printf function, inserting it if necessary.
 			auto printfRef = getOrInsertPrintf(rewriter, parentModule);
 
-			rewriter.create<CallOp>(loc, printfRef, rewriter.getIntegerType(32), operands);
+			rewriter.create<mlir::CallOp>(loc, printfRef, rewriter.getIntegerType(32), operands);
 
 			// Notify the rewriter that this operation has been removed.
 			rewriter.eraseOp(op);
@@ -189,13 +183,13 @@ namespace {
 			auto randRef = getOrInsertRand(rewriter, parentModule);
 
 			//auto randOp = cast<tvl::RandOp>(op);
-			auto high = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
+			auto high = rewriter.create<mlir::CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
 			auto highCast = rewriter.create<ZeroExtendIOp>(loc, high, rewriter.getI64Type());
-			auto low = rewriter.create<CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
+			auto low = rewriter.create<mlir::CallOp>(loc, randRef, rewriter.getI32Type())->getOpResult(0);
 			auto lowCast = rewriter.create<ZeroExtendIOp>(loc, low, rewriter.getI64Type());
-			auto shiftValue = rewriter.create<ConstantOp>(loc, rewriter.getI64IntegerAttr(32));
+			auto shiftValue = rewriter.create<mlir::ConstantOp>(loc, rewriter.getI64IntegerAttr(32));
 			auto shiftedHigh = rewriter.create<ShiftLeftOp>(loc, highCast, shiftValue)->getOpResult(0);
-			rewriter.replaceOpWithNewOp<OrOp>(op, shiftedHigh, lowCast);
+			rewriter.replaceOpWithNewOp<mlir::OrOp>(op, shiftedHigh, lowCast);
 
 			return success();
 		}
@@ -233,7 +227,7 @@ namespace {
 			auto srandRef = getOrInsertSRand(rewriter, parentModule);
 
 			auto srandOp = cast<tvl::SRandOp>(op);
-			rewriter.create<CallOp>(loc, srandRef, LLVM::LLVMVoidType::get(parentModule.getContext()), srandOp.seed());
+			rewriter.create<mlir::CallOp>(loc, srandRef, LLVM::LLVMVoidType::get(parentModule.getContext()), srandOp.seed());
 			rewriter.eraseOp(op);
 
 			return success();
@@ -266,6 +260,12 @@ namespace {
 
 		void runOnOperation() final;
 	};
+
+	Type convertStructType(tvl::StructType type, LLVMTypeConverter& converter) {
+		auto* context = type.getContext();
+		auto int64Ty = converter.convertType(IntegerType::get(context, 64));
+		return LLVMStructType::getLiteral(context, {int64Ty, int64Ty});
+	}
 } // end anonymous namespace
 
 void TvlToLLVMLoweringPass::runOnOperation() {
@@ -277,6 +277,8 @@ void TvlToLLVMLoweringPass::runOnOperation() {
 	// details how one type maps to another. This is necessary now that we will be doing more complicated lowerings,
 	// involving loop region arguments.
 	LLVMTypeConverter typeConverter(&getContext());
+
+	typeConverter.addConversion([&](tvl::StructType type) { return convertStructType(type, typeConverter); });
 
 	RewritePatternSet patterns(&getContext());
 	populateVectorToLLVMConversionPatterns(typeConverter, patterns);

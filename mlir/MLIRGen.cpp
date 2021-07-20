@@ -512,8 +512,7 @@ namespace {
 		}
 
 		mlir::Value mlirGenInstantNow(const ast::FunctionCall& call) {
-			ArrayRef<mlir::Type> elementTypes{builder.getI64Type(), builder.getI64Type()};
-			return builder.create<InstantNowOp>(loc(call.getLocation()), builder.getType<StructType>(elementTypes));
+			return builder.create<InstantNowOp>(loc(call.getLocation()));
 		}
 
 		mlir::Value mlirGenInstantElapsed(const ast::FunctionCall& call) {
@@ -526,7 +525,7 @@ namespace {
 				return nullptr;
 			}
 
-			return builder.create<InstantElapsedOp>(loc(call.getLocation()), builder.getF64Type(), instant);
+			return builder.create<InstantElapsedOp>(loc(call.getLocation()), builder.getI64Type(), instant);
 		}
 
 		mlir::Value mlirGenMaskInit(const ast::FunctionCall& call) {

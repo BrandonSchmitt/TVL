@@ -100,6 +100,13 @@ namespace tvl {
 			return type;
 		}
 
+		static LangType getArrayType(const LangType& elementType, llvm::StringRef arrayLengthTemplateVar) {
+			LangType type{array};
+			type.elementType = std::make_unique<LangType>(elementType);
+			type.sequentialLength = arrayLengthTemplateVar;
+			return type;
+		}
+
 		static LangType getArrayType(llvm::StringRef elementTypeTemplateVar, llvm::StringRef arrayLengthTemplateVar) {
 			LangType type{array};
 			type.elementType = std::make_unique<LangType>(getTemplateVariableType(elementTypeTemplateVar));

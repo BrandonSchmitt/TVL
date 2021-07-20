@@ -55,7 +55,7 @@ namespace {
 			// parameters types are in the default ordering with the result type on position 0 and the first parameter
 			// at index 1 and so on.
 			auto instantNow = StdLibFunction("instantNow", {f64Type});
-			auto instantElapsed = StdLibFunction("instantElapsed", {f64Type, f64Type});
+			auto instantElapsed = StdLibFunction("instantElapsed", {u64Type, f64Type});
 			auto print_v0 = StdLibFunction("print", {
 					voidType,
 					stringType,
@@ -95,17 +95,6 @@ namespace {
 					LangType::getTemplateVariableType("T4", number),
 					LangType::getTemplateVariableType("T5", number),
 			});
-			/*auto print_u8 = StdLibFunction("print", {voidType, stringType, u8Type});
-			auto print_u16 = StdLibFunction("print", {voidType, stringType, u16Type});
-			auto print_u32 = StdLibFunction("print", {voidType, stringType, u32Type});
-			auto print_u64 = StdLibFunction("print", {voidType, stringType, u64Type});
-			auto print_usize = StdLibFunction("print", {voidType, stringType, usizeType});
-			auto print_i8 = StdLibFunction("print", {voidType, stringType, i8Type});
-			auto print_i16 = StdLibFunction("print", {voidType, stringType, i16Type});
-			auto print_i32 = StdLibFunction("print", {voidType, stringType, i32Type});
-			auto print_i64 = StdLibFunction("print", {voidType, stringType, i64Type});
-			auto print_f32 = StdLibFunction("print", {voidType, stringType, f32Type});
-			auto print_f64 = StdLibFunction("print", {voidType, stringType, f64Type});*/
 			auto srand_u32 = StdLibFunction("srand", {voidType, u32Type});
 			auto rand_u64 = StdLibFunction("rand_u64", {u64Type});
 			auto vecAdd = StdLibFunction("vecAdd",
@@ -508,7 +497,7 @@ namespace {
 		bool inferTopDown(ArrayIndexing& arrayIndexing, const LangType& type) {
 			arrayIndexing.setEmittingLangType(type);
 
-			return inferTopDown(*arrayIndexing.getArray(), LangType::getArrayType(type, 0));
+			return inferTopDown(*arrayIndexing.getArray(), LangType::getArrayType(type, "N"));
 
 			// top-down-pass for index already done in bottom-up-phase of ArrayIndexing
 		}
@@ -817,10 +806,16 @@ namespace {
 						}
 
 						auto argumentType = argument.getEmittingLangType();
+						if (!LangType::compatible(argumentType, parameter)) {
+							return false;
+						}
 						if (parameter.incomplete()) {
 							if (!TypeInference::inferGenerics(templateArguments, parameter, argumentType)) {
 								return false;
 							}
+						}
+						else if (argumentType.incomplete()) {
+							argumentType = LangType::intersect(parameter, argumentType);
 						}
 
 						if (!inferTopDown(argument, argumentType)) {

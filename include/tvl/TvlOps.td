@@ -152,6 +152,13 @@ def InstantNowOp : TvlOp<"instant_now", []> {
 
 	let results = (outs TvlStructType:$instant);
 
+	let builders = [
+		OpBuilder<(ins), [{
+			ArrayRef<mlir::Type> elementTypes{$_builder.getI64Type(), $_builder.getI64Type()};
+			build($_builder, $_state, $_builder.getType<StructType>(elementTypes));
+		}]>
+	];
+
 	let assemblyFormat = "attr-dict `:` type($instant)";
 }
 
@@ -159,7 +166,7 @@ def InstantElapsedOp : TvlOp<"instant_elapsed", []> {
 	let summary = "Returns the number of seconds elapsed since the given instant";
 
 	let arguments = (ins TvlStructType:$instant);
-	let results = (outs F64:$result);
+	let results = (outs I64:$result);
 }
 
 def LoadOp : TvlOp<"load", [

@@ -140,6 +140,7 @@ expression:
     expression "/" expression { $$ = make_unique<BinaryOperator>(BinaryOperator::Division, $1, $3, @$); } |	// arithmetic-expression
     expression "%" expression { $$ = make_unique<BinaryOperator>(BinaryOperator::Remainder, $1, $3, @$); } |	// arithmetic-expression
 	"[" array-elements "]" { $$ = make_unique<Array>($2, @$); } |	// array-expression
+	"[" expression ";" "integer" "]" { auto repetition = $4; $$ = make_unique<Array>($2, repetition.first, @$); } | // array-expression
     expression "[" expression "]" { $$ = make_unique<ArrayIndexing>($1, $3, @$); } %prec ARRAY_INDEXING |	// array-indexing-expression
     expression "=" expression { $$ = make_unique<Assignment>($1, $3, @$); } |	// assignment-expression
 	"identifier" template-argument-list-or-empty argument-list-or-empty %prec FUNCTION_CALL { $$ = make_unique<FunctionCall>($1, $2, $3, @$); } |  // call-expression

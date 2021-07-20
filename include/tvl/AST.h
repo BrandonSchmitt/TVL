@@ -187,14 +187,18 @@ namespace tvl {
 		class Array : public Expression {
 		public:
 			Array(ExpressionPtrVec elements, Location loc)
-					: Expression{ArrayNode, loc}, elements{std::move(elements)} {}
+					: Expression{ArrayNode, loc}, elements{std::move(elements)}, repetition{1, 1} {}
+			Array(ExpressionPtr element, llvm::APInt repetition, Location loc)
+					: Expression{ArrayNode, loc}, repetition{std::move(repetition)} { elements.push_back(std::move(element)); }
 
 			const ExpressionPtrVec& getElements() const { return elements; }
+			const llvm::APInt& getRepetitions() const { return repetition; }
 
 			static bool classof(const Node* node) { return node->getType() == ArrayNode; }
 
 		private:
 			ExpressionPtrVec elements;
+			llvm::APInt repetition;
 		};
 
 		class ArrayIndexing : public Expression {

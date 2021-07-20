@@ -107,14 +107,15 @@ namespace {
 			auto location = loc(node.getLocation());
 
 			auto integerType = getMlirType(node.getEmittingLangType().elementType->baseType);
-			auto arrayLength = node.getElements().size();
+			auto arrayLength = node.getElements().size() * node.getRepetitions().getLimitedValue();
 			std::vector<int64_t> shape{static_cast<int64_t>(arrayLength)};
 			auto memRefType = mlir::MemRefType::get(shape, integerType);
 			auto memRef = builder.create<mlir::memref::AllocaOp>(location, memRefType);
 
 			for (size_t i = 0; i < arrayLength; ++i) {
 				mlir::Value index = builder.create<ConstantOp>(location, builder.getIndexAttr(i));
-				builder.create<mlir::memref::StoreOp>(location, mlirGen(*node.getElements().at(i)), memRef,
+				builder.create<mlir::memref::StoreOp>(location,
+						mlirGen(*node.getElements().at(i % node.getElements().size())), memRef,
 						mlir::ValueRange(index));
 			}
 			return memRef;
@@ -536,7 +537,8 @@ namespace {
 
 			auto location = loc(call.getLocation());
 			auto value = builder.create<ConstantOp>(location, builder.getIntegerAttr(builder.getI1Type(), 0));
-			return builder.create<VectorBroadcastOp>(location, mlir::VectorType::get(length, builder.getI1Type()), value);
+			return builder.create<VectorBroadcastOp>(location, mlir::VectorType::get(length, builder.getI1Type()),
+					value);
 		}
 
 		mlir::LogicalResult mlirGenPrint(const ast::FunctionCall& call) {
@@ -552,7 +554,8 @@ namespace {
 			formatStr.split(parts, "{}");
 
 			if (parts.size() != call.getArguments().size()) {
-				llvm::errs() << loc(call.getLocation()) << ": print expects " << parts.size() - 1 << " arguments, " << call.getArguments().size() - 1 << " given.";
+				llvm::errs() << loc(call.getLocation()) << ": print expects " << parts.size() - 1 << " arguments, "
+						<< call.getArguments().size() - 1 << " given.";
 				return mlir::failure();
 			}
 
@@ -595,10 +598,10 @@ namespace {
 						printfStr += "%li";
 						static_assert(sizeof(long int) == 8, "%li is the wrong identifier for printf");
 						break;
-					/*case f32: Need to promote f32 to f64 first. printf does not cover f32.
-						printfStr += "%f";
-						static_assert(sizeof(double) == 4, "%f is the wrong identifier for printf");
-						break;*/
+						/*case f32: Need to promote f32 to f64 first. printf does not cover f32.
+							printfStr += "%f";
+							static_assert(sizeof(double) == 4, "%f is the wrong identifier for printf");
+							break;*/
 					case f64:
 						printfStr += "%f";
 						static_assert(sizeof(double) == 8, "%f is the wrong identifier for printf");
@@ -682,7 +685,8 @@ namespace {
 			}
 
 			mlir::Value indexZero = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
-			builder.create<VectorCompressStoreOp>(loc(call.getLocation()), vec, mask, mem, mlir::ValueRange({indexZero}));
+			builder.create<VectorCompressStoreOp>(loc(call.getLocation()), vec, mask, mem,
+					mlir::ValueRange({indexZero}));
 			return mlir::success();
 		}
 
@@ -701,7 +705,8 @@ namespace {
 				return nullptr;
 			}
 
-			return builder.create<VectorExtractElementOp>(loc(call.getLocation()), vec.getType().cast<mlir::VectorType>().getElementType(), vec, idx);
+			return builder.create<VectorExtractElementOp>(loc(call.getLocation()),
+					vec.getType().cast<mlir::VectorType>().getElementType(), vec, idx);
 		}
 
 		mlir::Value mlirGenVectorGather(const ast::FunctionCall& call) {
@@ -728,7 +733,9 @@ namespace {
 			}
 
 			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
-			return builder.create<VectorGatherOp>(loc(call.getLocation()), mlir::VectorType::get(indexVectorType.getShape(), memRefType.getElementType()), memRef, index, indexVector);
+			return builder.create<VectorGatherOp>(loc(call.getLocation()),
+					mlir::VectorType::get(indexVectorType.getShape(), memRefType.getElementType()), memRef, index,
+					indexVector);
 		}
 
 		mlir::Value mlirGenVectorHAdd(const ast::FunctionCall& call) {
@@ -756,7 +763,8 @@ namespace {
 
 			mlir::Value index = builder.create<ConstantOp>(loc(call.getLocation()), builder.getIndexAttr(0));
 			return builder.create<VectorLoadOp>(loc(call.getLocation()),
-					mlir::VectorType::get(length, memref.getType().cast<mlir::MemRefType>().getElementType()), memref, index);
+					mlir::VectorType::get(length, memref.getType().cast<mlir::MemRefType>().getElementType()), memref,
+					index);
 		}
 
 		mlir::LogicalResult mlirGenVectorStore(const ast::FunctionCall& call) {
@@ -791,7 +799,8 @@ namespace {
 
 			auto length = std::get<ast::IntegerPtr>(call.getTemplateArgument(0))->getValue();
 
-			return builder.create<VectorSequenceOp>(loc(call.getLocation()), mlir::VectorType::get(length, offset.getType()), offset);
+			return builder.create<VectorSequenceOp>(loc(call.getLocation()),
+					mlir::VectorType::get(length, offset.getType()), offset);
 		}
 
 		/// This is a reference to a variable in an expression. The variable is expected to have been declared and so
@@ -963,18 +972,20 @@ namespace {
 			if (!(global = theModule.lookupSymbol<mlir::LLVM::GlobalOp>(name))) {
 				mlir::OpBuilder::InsertionGuard insertGuard(builder);
 				builder.setInsertionPointToStart(theModule.getBody());
-				auto type = mlir::LLVM::LLVMArrayType::get(mlir::IntegerType::get(builder.getContext(), 8), value.size());
+				auto type = mlir::LLVM::LLVMArrayType::get(mlir::IntegerType::get(builder.getContext(), 8),
+						value.size());
 				global = builder.create<mlir::LLVM::GlobalOp>(loc, type, true, mlir::LLVM::Linkage::Internal, name,
-				                                        builder.getStringAttr(value));
+						builder.getStringAttr(value));
 			}
 
 			// Get the pointer to the first character in the global string.
 			mlir::Value globalPtr = builder.create<mlir::LLVM::AddressOfOp>(loc, global);
-			mlir::Value cst0 = builder.create<mlir::LLVM::ConstantOp>(loc, mlir::IntegerType::get(builder.getContext(), 64),
-			                                              builder.getIntegerAttr(builder.getIndexType(), 0));
+			mlir::Value cst0 = builder.create<mlir::LLVM::ConstantOp>(loc,
+					mlir::IntegerType::get(builder.getContext(), 64),
+					builder.getIntegerAttr(builder.getIndexType(), 0));
 			return builder.create<mlir::LLVM::GEPOp>(loc,
-			                                         mlir::LLVM::LLVMPointerType::get(mlir::IntegerType::get(builder.getContext(), 8)), globalPtr,
-			                                   ArrayRef<mlir::Value>({cst0, cst0}));
+					mlir::LLVM::LLVMPointerType::get(mlir::IntegerType::get(builder.getContext(), 8)), globalPtr,
+					ArrayRef<mlir::Value>({cst0, cst0}));
 		}
 	};
 

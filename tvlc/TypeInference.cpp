@@ -455,7 +455,7 @@ namespace {
 				}
 			}
 
-			array.setEmittingLangType(LangType::getArrayType(elementType, array.getElements().size()));
+			array.setEmittingLangType(LangType::getArrayType(elementType, array.getElements().size() * array.getRepetitions().getLimitedValue()));
 
 			return true;
 		}
